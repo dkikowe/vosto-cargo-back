@@ -28,14 +28,6 @@ app.use(
   })
 );
 
-app.use(
-  cors({
-    origin: "http://localhost:5173", // вместо "*"
-    methods: ["GET", "PATCH", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
-
 app.use(express.json());
 
 const storage = multer.memoryStorage();
