@@ -1,18 +1,18 @@
 import mongoose from "mongoose";
 
 const companySchema = new mongoose.Schema({
-  name: { type: String, default: null },
-  inn: { type: String, default: null }, // ИНН
-  ogrn: { type: String, default: null }, // ОГРН
-  profile: { type: String, default: null }, // Профиль (например, "экспедитор-перевозчик")
-  country: { type: String, default: null }, // Страна
-  city: { type: String, default: null }, // Город
-  email: { type: String, default: null }, // Почта
-  website: { type: String, default: null }, // Сайт
-  manager: { type: String, default: null }, // Руководитель
-  phone: { type: String, default: null }, // Телефон
-  jobTitle: { type: String, default: null }, // Должность
-  department: { type: String, default: null }, // Подразделение
+  name: { type: String, default: "" },
+  inn: { type: String, default: "" }, // ИНН
+  ogrn: { type: String, default: "" }, // ОГРН
+  profile: { type: String, default: "" }, // Профиль (например, "экспедитор-перевозчик")
+  country: { type: String, default: "" }, // Страна
+  city: { type: String, default: "" }, // Город
+  email: { type: String, default: "" }, // Почта
+  website: { type: String, default: "" }, // Сайт
+  manager: { type: String, default: "" }, // Руководитель
+  phone: { type: String, default: "" }, // Телефон
+  jobTitle: { type: String, default: "" }, // Должность
+  department: { type: String, default: "" }, // Подразделение
 });
 
 const userSchema = new mongoose.Schema(
