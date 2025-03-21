@@ -195,6 +195,28 @@ export const getSubscribe = async (req, res) => {
   }
 };
 
+export const setRole = async (req, res) => {
+  const { userId, role } = req.body;
+  if (!userId || !role) {
+    return res.status(400).json({ error: "User ID и роль обязательны" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+    user.role = role;
+    await user.save();
+    return res.json({ status: "Роль обновлена", user });
+  } catch (error) {
+    console.error("Ошибка при обновлении роли:", error);
+    return res
+      .status(500)
+      .json({ error: "Ошибка сервера при обновлении роли" });
+  }
+};
+
 export const getUser = async (req, res) => {
   try {
     const user = await User.findOne({ _id: req.params.id });
@@ -288,5 +310,54 @@ export const changeUserName = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Не удалось сохранить имя" });
+  }
+};
+
+export const updateCompany = async (req, res) => {
+  try {
+    const { userId, ...companyData } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "Необходимо передать userId" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+
+    // companyData может содержать любые поля из [inn, ogrn, profile, country, city, email, website, manager, phone, jobTitle, department]
+    // Делаем частичное слияние
+    Object.keys(companyData).forEach((key) => {
+      // Если в теле есть какое-то поле, обновляем его у user.company
+      user.company[key] = companyData[key];
+    });
+
+    await user.save();
+    return res.json({ status: "Информация о компании обновлена", user });
+  } catch (error) {
+    console.error("Ошибка при обновлении информации о компании:", error);
+    return res
+      .status(500)
+      .json({ error: "Ошибка сервера при обновлении информации о компании" });
+  }
+};
+
+export const getCompany = async (req, res) => {
+  try {
+    const { userId } = req.params; // ожидаем GET /getCompany/:userId
+    if (!userId) {
+      return res.status(400).json({ error: "Не указан userId" });
+    }
+
+    // Находим пользователя по ID и выбираем только поле company
+    const user = await User.findById(userId).select("company");
+    if (!user) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+
+    return res.json({ company: user.company });
+  } catch (error) {
+    console.error("Ошибка при получении данных компании:", error);
+    return res.status(500).json({ error: error.message });
   }
 };
