@@ -20,7 +20,6 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     role: {
       type: String,
-      enum: ["Грузодатель", "Грузоперевозчик", "Диспетчер"],
     },
     telegramId: { type: String, unique: true, required: true },
     avatar: { type: String, default: "" },
