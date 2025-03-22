@@ -52,7 +52,7 @@ app.get("/getUsers", UserController.getUsers);
 
 // Добавляем маршрут для обновления информации о компании
 app.post("/updateCompany", UserController.updateCompany);
-app.get("/getCompany/:userId", UserController.getCompany);
+app.get("/getCompany/:id", UserController.getCompany);
 
 // ---------- Маршруты для заказов ----------
 app.post("/orders", OrderController.createOrder);

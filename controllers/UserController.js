@@ -344,20 +344,18 @@ export const updateCompany = async (req, res) => {
 
 export const getCompany = async (req, res) => {
   try {
-    const { userId } = req.params; // ожидаем GET /getCompany/:userId
-    if (!userId) {
-      return res.status(400).json({ error: "Не указан userId" });
-    }
+    const user = await User.findOne({ _id: req.params.id });
 
-    // Находим пользователя по ID и выбираем только поле company
-    const user = await User.findById(userId).select("company");
     if (!user) {
-      return res.status(404).json({ error: "Пользователь не найден" });
+      return res.status(404).json({ message: "Пользователь не найден" });
     }
 
-    return res.json({ company: user.company });
+    // Возвращаем пользователя как есть, без генерации ссылки для аватара
+    res.json(user);
   } catch (error) {
-    console.error("Ошибка при получении данных компании:", error);
-    return res.status(500).json({ error: error.message });
+    console.error("Ошибка при получении пользователя:", error);
+    return res
+      .status(500)
+      .json({ message: "Не удалось получить данные пользователя" });
   }
 };
