@@ -25,6 +25,8 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String, default: "" },
     // Теперь company – это поддокумент со множеством полей
     company: { type: companySchema, default: () => ({}) },
+    // Новое поле для хранения выбранной темы пользователя
+    theme: { type: String, enum: ["light", "dark"], default: "light" },
   },
   { timestamps: true }
 );

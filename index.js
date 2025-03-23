@@ -54,6 +54,9 @@ app.get("/getUsers", UserController.getUsers);
 app.post("/updateCompany", UserController.updateCompany);
 app.get("/getCompany/:id", UserController.getCompany);
 
+// Добавляем маршрут для сохранения темы
+app.post("/saveTheme", UserController.saveTheme);
+
 // ---------- Маршруты для заказов ----------
 app.post("/orders", OrderController.createOrder);
 app.get("/orders", OrderController.getOrders);

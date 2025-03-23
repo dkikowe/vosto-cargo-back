@@ -359,3 +359,31 @@ export const getCompany = async (req, res) => {
       .json({ message: "Не удалось получить данные пользователя" });
   }
 };
+
+export const saveTheme = async (req, res) => {
+  const { userId, theme } = req.body;
+
+  // Проверка входных данных
+  if (!userId || !theme) {
+    return res.status(400).json({ message: "userId и theme обязательны" });
+  }
+
+  if (!["light", "dark"].includes(theme)) {
+    return res.status(400).json({ message: "Неверное значение темы" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+
+    user.theme = theme;
+    await user.save();
+
+    res.json({ message: "Тема успешно сохранена", user });
+  } catch (error) {
+    console.error("Ошибка при сохранении темы:", error);
+    res.status(500).json({ message: "Ошибка сервера при сохранении темы" });
+  }
+};
