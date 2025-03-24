@@ -50,18 +50,23 @@ app.post("/setRole", UserController.setRole);
 app.post("/saveName", UserController.changeUserName);
 app.get("/getUsers", UserController.getUsers);
 
-// Добавляем маршрут для обновления информации о компании
+// Маршруты для обновления информации о компании
 app.post("/updateCompany", UserController.updateCompany);
 app.get("/getCompany/:id", UserController.getCompany);
 
-// Добавляем маршрут для сохранения темы
+// Маршрут для сохранения темы
 app.post("/saveTheme", UserController.saveTheme);
 
 // ---------- Маршруты для заказов ----------
 app.post("/orders", OrderController.createOrder);
 app.get("/orders", OrderController.getOrders);
 app.put("/orders/:id", OrderController.updateOrder);
-app.delete("/orders/:id", OrderController.deleteOrder);
+// Пусть будет DELETE /orders
+app.delete("/orders", OrderController.deleteOrder);
+
+// Новые маршруты для архивирования/восстановления заказов
+app.post("/orders/archive", OrderController.archiveOrder);
+app.post("/orders/restore", OrderController.restoreOrder);
 
 const port = process.env.PORT || 5050;
 
