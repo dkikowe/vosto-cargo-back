@@ -1,11 +1,10 @@
-import { Order, CargoOrder, MachineOrder } from "../models/Order.js";
+import { CargoOrder, MachineOrder, Order } from "../models/Order.js";
 
-// Создание заказа (груза или машины) в зависимости от orderType
 export const createOrder = async (req, res) => {
   try {
-    const { userId, orderType, description, ...orderData } = req.body;
+    // Извлекаем основные поля из запроса
+    const { userId, orderType, description, ...rest } = req.body;
 
-    // Проверяем наличие обязательных полей
     if (!userId || !orderType) {
       return res.status(400).json({
         error: "Требуются userId и orderType (CargoOrder или MachineOrder)",
@@ -13,20 +12,50 @@ export const createOrder = async (req, res) => {
     }
 
     let newOrder;
-    // Если это заявка на груз
+
     if (orderType === "CargoOrder") {
+      // Для груза преобразуем поля так, чтобы они соответствовали схеме:
+      // схема ожидает: from, to, cargo, weight, volume, rate, ready, vehicle
       newOrder = new CargoOrder({
         description,
         createdBy: userId,
-        ...orderData, // поля схемы CargoOrder
+        from: rest.loadingPlace || "", // Место загрузки
+        to: rest.unloadingPlace || "", // Место выгрузки
+        cargo: rest.cargoName || "", // Наименование груза
+        weight: rest.weight ? rest.weight.toString() : "",
+        volume: rest.volume ? rest.volume.toString() : "",
+        rate: rest.rate || "",
+        ready: rest.ready || "",
+        vehicle: rest.vehicle || "",
+        paymentMethod: rest.paymentMethod || "",
       });
-    }
-    // Если это заявка на машину
-    else if (orderType === "MachineOrder") {
+    } else if (orderType === "MachineOrder") {
+      // Для машины схема требует: marka, tip, kuzov, tip_zagruzki, gruzopodyomnost, vmestimost,
+      // data_gotovnosti, otkuda, kuda, telefon, imya, firma, gorod, pochta, company
+      // Если на форме у вас разделено на два поля (например, marka и tip), то используйте их.
+      // Если же у вас введено в одном поле (brandAndModel), то можно разделить:
+
       newOrder = new MachineOrder({
         description,
         createdBy: userId,
-        ...orderData, // поля схемы MachineOrder
+        marka: rest.marka,
+        tip: rest.tip,
+        kuzov: rest.kuzov || "",
+        tip_zagruzki: rest.tip_zagruzki || "",
+        gruzopodyomnost: rest.gruzopodyomnost
+          ? rest.gruzopodyomnost.toString()
+          : "",
+        vmestimost: rest.vmestimost ? rest.vmestimost.toString() : "",
+        data_gotovnosti: rest.data_gotovnosti || "",
+        otkuda: rest.otkuda || "",
+        kuda: rest.kuda || "",
+        telefon: rest.telefon || "",
+        imya: rest.contactName || "",
+        firma: rest.firm || "",
+        gorod: rest.gorod || "",
+        pochta: rest.pochta || "",
+        company: rest.company || "",
+        paymentMethod: rest.paymentMethod || "",
       });
     } else {
       return res.status(400).json({ error: "Неверный тип заявки (orderType)" });
@@ -35,6 +64,7 @@ export const createOrder = async (req, res) => {
     const savedOrder = await newOrder.save();
     return res.status(201).json(savedOrder);
   } catch (error) {
+    console.error("Ошибка в createOrder:", error);
     return res.status(500).json({ error: error.message });
   }
 };
@@ -57,6 +87,18 @@ export const getOrders = async (req, res) => {
     return res.json(orders);
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+};
+
+export const getAllOrders = async (req, res) => {
+  try {
+    const orders = await Order.find().sort({ createdAt: -1 });
+    res.status(200).json(orders);
+  } catch (error) {
+    console.error("Ошибка при получении заказов:", error);
+    res.status(500).json({
+      message: "Не удалось получить список заказов",
+    });
   }
 };
 

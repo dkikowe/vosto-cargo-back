@@ -10,6 +10,7 @@ dotenv.config();
 import * as UserController from "./controllers/UserController.js";
 import * as OrderController from "./controllers/OrderController.js"; // Импорт контроллера заказов
 import ParseController from "./controllers/ParseController.js";
+import "./jobs.js";
 
 const errorMsg = chalk.bgWhite.redBright;
 const successMsg = chalk.bgGreen.white;
@@ -61,6 +62,7 @@ app.post("/saveTheme", UserController.saveTheme);
 // ---------- Маршруты для заказов ----------
 app.post("/orders", OrderController.createOrder);
 app.get("/orders", OrderController.getOrders);
+app.get("/allOrders", OrderController.getAllOrders);
 app.put("/orders/:id", OrderController.updateOrder);
 // Пусть будет DELETE /orders
 app.delete("/orders", OrderController.deleteOrder);
