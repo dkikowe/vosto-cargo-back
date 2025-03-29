@@ -115,8 +115,8 @@ class ParseController {
       while (true) {
         const url =
           currentPage === 1
-            ? "http://avtodispetcher.ru/truck/"
-            : `http://avtodispetcher.ru/truck/page/${currentPage}/`;
+            ? "https://avtodispetcher.ru/truck/"
+            : `https://avtodispetcher.ru/truck/page/${currentPage}/`;
         console.log(`Сканируем список машин, страница ${currentPage}: ${url}`);
 
         await page.goto(url, {
