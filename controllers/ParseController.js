@@ -7,7 +7,6 @@ import { v4 as uuidv4 } from "uuid";
 class ParseController {
   /**
    * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
-   * (без изменений)
    */
   async parseAvtodispetcher(req, res) {
     try {
@@ -96,14 +95,19 @@ class ParseController {
   }
 
   /**
-   * Парсинг всех машин с http://avtodispetcher.ru/truck/
+   * Парсинг всех машин с https://avtodispetcher.ru/truck/
    * Теперь с параллельной (chunk) обработкой детальных ссылок
    */
   async parseVehiclesFromAvtodispetcher(req, res) {
     try {
       const browser = await puppeteer.launch({
         headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+        ],
         defaultViewport: null,
       });
       const page = await browser.newPage();
@@ -135,9 +139,15 @@ class ParseController {
           break;
         }
 
+        // Преобразуем относительные ссылки в абсолютные с https
         const links = await page.$$eval(
           'table tr td a[href^="/truck/"][href$=".html"]',
-          (els) => els.map((el) => el.href)
+          (els) =>
+            els.map(
+              (el) =>
+                new URL(el.getAttribute("href"), "https://avtodispetcher.ru")
+                  .href
+            )
         );
         console.log(
           `На странице ${currentPage} найдено ссылок: ${links.length}`
@@ -258,19 +268,13 @@ class ParseController {
             сompany: detailData["Название компании"] || "",
           };
         } finally {
-          // Закрываем страницу
           await pageDetail.close();
         }
       };
 
-      // Пошагово обрабатываем массив ссылок chunk'ами по 5
       for (let i = 0; i < detailLinks.length; i += chunkSize) {
         const chunk = detailLinks.slice(i, i + chunkSize);
-
-        // Для каждого link в chunk запускаем parseOneVehicle параллельно
         const chunkPromises = chunk.map((link) => parseOneVehicle(link));
-
-        // Ждём, пока все из текущего куска завершатся
         const chunkResults = await Promise.all(chunkPromises);
         results.push(...chunkResults);
       }
