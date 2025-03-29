@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 class ParseController {
   /**
    * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
+   * (без изменений)
    */
   async parseAvtodispetcher(req, res) {
     try {
@@ -90,12 +91,8 @@ class ParseController {
   }
 
   /**
-   * Парсинг всех машин с http://avtodispetcher.ru/truck/:
-   * - Проходим по страницам /truck/ и /truck/page/N/
-   * - Собираем ссылки на детальные страницы
-   * - На каждой детальной странице парсим пары <td>Название</td> <td>Значение</td>
-   * - Разбиваем поле "Марка и тип" на два отдельных поля: marka и tip
-   * - Если телефон не найден текстом, пытаемся распознать его из изображения через OCR (Tesseract)
+   * Парсинг всех машин с http://avtodispetcher.ru/truck/
+   * Теперь с параллельной (chunk) обработкой детальных ссылок
    */
   async parseVehiclesFromAvtodispetcher(req, res) {
     try {
@@ -155,94 +152,122 @@ class ParseController {
 
       console.log("Уникальных детальных ссылок:", detailLinksSet.size);
 
+      // Преобразуем Set в массив, чтобы обрабатывать чанками
+      const detailLinks = Array.from(detailLinksSet);
+
+      // Сколько страниц обрабатываем параллельно
+      const chunkSize = 5;
       const results = [];
-      for (const link of detailLinksSet) {
+
+      // Функция, парсящая одну детальную ссылку
+      const parseOneVehicle = async (link) => {
         console.log("Парсинг машины:", link);
-        await page.goto(link, {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        });
-
+        const pageDetail = await browser.newPage();
         try {
-          await page.waitForSelector("table", { timeout: 10000 });
-        } catch {
-          console.log("Нет таблицы на детальной странице:", link);
-        }
-
-        // Парсим данные из таблицы: строки в формате <tr><td>Название</td><td>Значение</td></tr>
-        const detailData = await page.$$eval("table tr", (rows) => {
-          const data = {};
-          rows.forEach((row) => {
-            const tds = row.querySelectorAll("td");
-            if (tds.length === 2) {
-              const fieldName = tds[0].innerText.trim();
-              const fieldValue = tds[1].innerText.trim();
-              data[fieldName] = fieldValue;
-            }
+          await pageDetail.goto(link, {
+            waitUntil: "domcontentloaded",
+            timeout: 60000,
           });
-          return data;
-        });
-        console.log("Детальные данные:", detailData);
 
-        // Проверяем, есть ли телефон в текстовом виде
-        let telefon =
-          detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
-
-        // Если телефон не найден, ищем изображение телефона (примерный селектор .phoneImg)
-        if (!telefon) {
-          const phoneImg = await page.$(".phoneImg");
-          if (phoneImg) {
-            const tempFile = path.resolve(`phone-${uuidv4()}.png`);
-            await phoneImg.screenshot({ path: tempFile });
-            const {
-              data: { text },
-            } = await Tesseract.recognize(tempFile, "eng");
-            telefon = text.trim();
-            fs.unlinkSync(tempFile);
+          try {
+            await pageDetail.waitForSelector("table", { timeout: 10000 });
+          } catch {
+            console.log("Нет таблицы на детальной странице:", link);
           }
-        }
 
-        if (telefon) {
-          // Убираем все нецифровые символы
-          telefon = telefon.replace(/\D/g, "");
-          // Если первая цифра не "7", заменяем её на "7"
-          if (telefon[0] !== "7") {
-            telefon = "7" + telefon.slice(1);
+          // Парсим данные из таблицы
+          const detailData = await pageDetail.$$eval("table tr", (rows) => {
+            const data = {};
+            rows.forEach((row) => {
+              const tds = row.querySelectorAll("td");
+              if (tds.length === 2) {
+                const fieldName = tds[0].innerText.trim();
+                const fieldValue = tds[1].innerText.trim();
+                data[fieldName] = fieldValue;
+              }
+            });
+            return data;
+          });
+          console.log("Детальные данные:", detailData);
+
+          let telefon =
+            detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
+
+          // Если телефон не найден, пытаемся найти .phoneImg
+          if (!telefon) {
+            const phoneImg = await pageDetail.$(".phoneImg");
+            if (phoneImg) {
+              const tempFile = path.resolve(`phone-${uuidv4()}.png`);
+              try {
+                await phoneImg.screenshot({ path: tempFile });
+                const {
+                  data: { text },
+                } = await Tesseract.recognize(tempFile, "eng");
+                telefon = text.trim();
+                fs.unlinkSync(tempFile);
+              } catch (screenshotError) {
+                console.log("Ошибка при скриншоте телефона:", screenshotError);
+              }
+            }
           }
-        }
 
-        // Разбиваем поле "Марка и тип" на два отдельных поля
-        const fullMarkaTip =
-          detailData["Марка и тип"] || detailData["Марка, тип"] || "";
-        let marka = "";
-        let tip = "";
-        if (fullMarkaTip) {
-          const parts = fullMarkaTip.split(/\s+/, 2);
-          marka = parts[0] || "";
-          tip = parts[1] || "";
-        }
+          if (telefon) {
+            // Убираем все нецифровые символы
+            telefon = telefon.replace(/\D/g, "");
+            // Если первая цифра не "7", заменяем её на "7"
+            if (telefon[0] !== "7") {
+              telefon = "7" + telefon.slice(1);
+            }
+          }
 
-        results.push({
-          url: link,
-          marka,
-          tip,
-          kuzov: detailData["Кузов"] || "",
-          tip_zagruzki:
-            detailData["Загрузка"] || detailData["Тип загрузки"] || "",
-          gruzopodyomnost: detailData["Грузоподъемность"] || "",
-          vmestimost: detailData["Вместимость"] || "",
-          data_gotovnosti:
-            detailData["Готовность"] || detailData["Дата готовности"] || "",
-          otkuda: detailData["Откуда"] || "",
-          kuda: detailData["Куда"] || "",
-          telefon,
-          imya: detailData["Контактное лицо"] || detailData["Имя"] || "",
-          firma:
-            detailData["Профиль деятельности"] || detailData["Фирма"] || "",
-          gorod: detailData["Город"] || "",
-          pochta: detailData["Почта"] || "",
-          сompany: detailData["Название компании"] || "",
-        });
+          // Разбиваем "Марка и тип"
+          const fullMarkaTip =
+            detailData["Марка и тип"] || detailData["Марка, тип"] || "";
+          let marka = "";
+          let tip = "";
+          if (fullMarkaTip) {
+            const parts = fullMarkaTip.split(/\s+/, 2);
+            marka = parts[0] || "";
+            tip = parts[1] || "";
+          }
+
+          return {
+            url: link,
+            marka,
+            tip,
+            kuzov: detailData["Кузов"] || "",
+            tip_zagruzki:
+              detailData["Загрузка"] || detailData["Тип загрузки"] || "",
+            gruzopodyomnost: detailData["Грузоподъемность"] || "",
+            vmestimost: detailData["Вместимость"] || "",
+            data_gotovnosti:
+              detailData["Готовность"] || detailData["Дата готовности"] || "",
+            otkuda: detailData["Откуда"] || "",
+            kuda: detailData["Куда"] || "",
+            telefon,
+            imya: detailData["Контактное лицо"] || detailData["Имя"] || "",
+            firma:
+              detailData["Профиль деятельности"] || detailData["Фирма"] || "",
+            gorod: detailData["Город"] || "",
+            pochta: detailData["Почта"] || "",
+            сompany: detailData["Название компании"] || "",
+          };
+        } finally {
+          // Закрываем страницу
+          await pageDetail.close();
+        }
+      };
+
+      // Пошагово обрабатываем массив ссылок chunk'ами по 5
+      for (let i = 0; i < detailLinks.length; i += chunkSize) {
+        const chunk = detailLinks.slice(i, i + chunkSize);
+
+        // Для каждого link в chunk запускаем parseOneVehicle параллельно
+        const chunkPromises = chunk.map((link) => parseOneVehicle(link));
+
+        // Ждём, пока все из текущего куска завершатся
+        const chunkResults = await Promise.all(chunkPromises);
+        results.push(...chunkResults);
       }
 
       await browser.close();
