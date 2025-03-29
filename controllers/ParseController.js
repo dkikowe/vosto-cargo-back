@@ -7,7 +7,6 @@ import { v4 as uuidv4 } from "uuid";
 class ParseController {
   /**
    * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
-   * (без изменений)
    */
   async parseAvtodispetcher(req, res) {
     try {
@@ -91,8 +90,12 @@ class ParseController {
   }
 
   /**
-   * Парсинг всех машин с http://avtodispetcher.ru/truck/
-   * (без изменений)
+   * Парсинг всех машин с http://avtodispetcher.ru/truck/:
+   * - Проходим по страницам /truck/ и /truck/page/N/
+   * - Собираем ссылки на детальные страницы
+   * - На каждой детальной странице парсим пары <td>Название</td> <td>Значение</td>
+   * - Разбиваем поле "Марка и тип" на два отдельных поля: marka и tip
+   * - Если телефон не найден текстом, пытаемся распознать его из изображения через OCR (Tesseract)
    */
   async parseVehiclesFromAvtodispetcher(req, res) {
     try {
@@ -107,7 +110,7 @@ class ParseController {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
 
-      // Собираем ссылки на детальные страницы
+      // Собираем ссылки на детальные страницы со всех страниц
       const detailLinksSet = new Set();
       let currentPage = 1;
       const maxPages = 50;
@@ -164,9 +167,9 @@ class ParseController {
           await page.waitForSelector("table", { timeout: 10000 });
         } catch {
           console.log("Нет таблицы на детальной странице:", link);
-          continue;
         }
 
+        // Парсим данные из таблицы: строки в формате <tr><td>Название</td><td>Значение</td></tr>
         const detailData = await page.$$eval("table tr", (rows) => {
           const data = {};
           rows.forEach((row) => {
@@ -181,8 +184,11 @@ class ParseController {
         });
         console.log("Детальные данные:", detailData);
 
+        // Проверяем, есть ли телефон в текстовом виде
         let telefon =
           detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
+
+        // Если телефон не найден, ищем изображение телефона (примерный селектор .phoneImg)
         if (!telefon) {
           const phoneImg = await page.$(".phoneImg");
           if (phoneImg) {
@@ -195,12 +201,17 @@ class ParseController {
             fs.unlinkSync(tempFile);
           }
         }
+
         if (telefon) {
+          // Убираем все нецифровые символы
           telefon = telefon.replace(/\D/g, "");
+          // Если первая цифра не "7", заменяем её на "7"
           if (telefon[0] !== "7") {
             telefon = "7" + telefon.slice(1);
           }
         }
+
+        // Разбиваем поле "Марка и тип" на два отдельных поля
         const fullMarkaTip =
           detailData["Марка и тип"] || detailData["Марка, тип"] || "";
         let marka = "";
@@ -235,6 +246,7 @@ class ParseController {
       }
 
       await browser.close();
+
       return res.json({
         success: true,
         totalFound: results.length,
@@ -245,118 +257,6 @@ class ParseController {
       return res.status(500).json({
         success: false,
         error: "Ошибка при парсинге машин",
-        details: error.message,
-      });
-    }
-  }
-
-  /**
-   * Парсинг грузов с StranaGruzov.ru (пример без авторизации)
-   * Попытка парсить <table> (строки <tr>), если сайт действительно выводит объявления в табличном виде.
-   */
-  async parseStranaGruzovCargo(req, res) {
-    try {
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        defaultViewport: null,
-      });
-      const page = await browser.newPage();
-
-      await page.setUserAgent(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      );
-
-      // Открываем страницу с грузами
-      await page.goto("https://stranagruzov.ru/Freight/Main/", {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-
-      // Сохраняем HTML для отладки
-      const content = await page.content();
-      fs.writeFileSync("stranagruzov_cargo_debug.html", content, "utf8");
-
-      // Предположим, у каждого объявления класс row (или row freight).
-      // Если точно видите в DevTools "div.row.freight" - используйте 'div.row.freight'
-      // или используйте селектор: 'div[class^="row"]' чтобы охватить div.row...
-      await page.waitForSelector("div.row", { timeout: 20000 });
-
-      // Собираем все div с классом .row
-      const cargoList = await page.$$eval("div.row", (blocks) => {
-        return blocks.map((block) => {
-          const raw = block.innerText.trim();
-          // raw содержит все строки внутри объявления, например:
-          // "село Алешино ... 28-29 мар\nсело Сабуро-Покровское ... 780 RUB\n+7 904 461-71-92\nПодробнее"
-          // Вы можете распарсить это текстово, либо вернуть как есть.
-
-          // Пример простого парсинга (возвращаем всё как rawText):
-          return { rawText: raw };
-        });
-      });
-
-      await browser.close();
-      return res.json({
-        success: true,
-        totalFound: cargoList.length,
-        data: cargoList,
-      });
-    } catch (error) {
-      console.error("Ошибка при парсинге грузов с StranaGruzov:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Ошибка при парсинге грузов с StranaGruzov",
-        details: error.message,
-      });
-    }
-  }
-
-  async parseStranaGruzovVehicles(req, res) {
-    try {
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        defaultViewport: null,
-      });
-      const page = await browser.newPage();
-
-      await page.setUserAgent(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      );
-
-      // Открываем страницу с машинами
-      await page.goto("https://stranagruzov.ru/Truck/Search/!/", {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-
-      // Сохраняем HTML для отладки
-      const content = await page.content();
-      fs.writeFileSync("stranagruzov_vehicle_debug.html", content, "utf8");
-
-      // Аналогично, ищем div.row (или другой класс)
-      await page.waitForSelector("div.row", { timeout: 20000 });
-
-      const vehicleList = await page.$$eval("div.row", (blocks) => {
-        return blocks.map((block) => {
-          const raw = block.innerText.trim();
-          // Здесь вы тоже можете парсить, если есть нужная структура.
-          // Для примера возвращаем всё как rawText:
-          return { rawText: raw };
-        });
-      });
-
-      await browser.close();
-      return res.json({
-        success: true,
-        totalFound: vehicleList.length,
-        data: vehicleList,
-      });
-    } catch (error) {
-      console.error("Ошибка при парсинге транспорта с StranaGruzov:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Ошибка при парсинге транспорта с StranaGruzov",
         details: error.message,
       });
     }

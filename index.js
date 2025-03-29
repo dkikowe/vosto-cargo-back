@@ -73,12 +73,6 @@ app.post("/orders/restore", OrderController.restoreOrder);
 app.get("/parse-cargo", ParseController.parseAvtodispetcher);
 app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
 
-app.get("/parse-stranagruzov-cargo", ParseController.parseStranaGruzovCargo);
-app.get(
-  "/parse-stranagruzov-vehicles",
-  ParseController.parseStranaGruzovVehicles
-);
-
 const port = process.env.PORT || 5050;
 
 app.listen(port, () => {
