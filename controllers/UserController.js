@@ -197,6 +197,8 @@ export const getSubscribe = async (req, res) => {
 
 export const setRole = async (req, res) => {
   const { userId, role } = req.body;
+  console.log("setRole body:", req.body);
+
   if (!userId || !role) {
     return res.status(400).json({ error: "User ID и роль обязательны" });
   }

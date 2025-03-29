@@ -9,6 +9,7 @@ dotenv.config();
 
 import * as UserController from "./controllers/UserController.js";
 import * as OrderController from "./controllers/OrderController.js"; // Импорт контроллера заказов
+import ParseController from "./controllers/ParseController.js";
 
 const errorMsg = chalk.bgWhite.redBright;
 const successMsg = chalk.bgGreen.white;
@@ -67,6 +68,16 @@ app.delete("/orders", OrderController.deleteOrder);
 // Новые маршруты для архивирования/восстановления заказов
 app.post("/orders/archive", OrderController.archiveOrder);
 app.post("/orders/restore", OrderController.restoreOrder);
+
+// ---------- Маршруты для парсинга ----------
+app.get("/parse-cargo", ParseController.parseAvtodispetcher);
+app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
+
+app.get("/parse-stranagruzov-cargo", ParseController.parseStranaGruzovCargo);
+app.get(
+  "/parse-stranagruzov-vehicles",
+  ParseController.parseStranaGruzovVehicles
+);
 
 const port = process.env.PORT || 5050;
 

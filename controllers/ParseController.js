@@ -1,0 +1,366 @@
+import puppeteer from "puppeteer";
+import Tesseract from "tesseract.js";
+import fs from "fs";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
+
+class ParseController {
+  /**
+   * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
+   * (без изменений)
+   */
+  async parseAvtodispetcher(req, res) {
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        defaultViewport: null,
+      });
+      const page = await browser.newPage();
+
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      );
+
+      await page.goto("https://www.avtodispetcher.ru/consignor/", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+      await page.waitForSelector("table");
+
+      const cargoList = await page.$$eval("table tr", (rows) => {
+        return Array.from(rows)
+          .slice(1)
+          .map((row) => {
+            const cells = row.querySelectorAll("td");
+            if (cells.length < 6) return null;
+
+            const from = cells[0].innerText.trim();
+            let to = cells[1].innerText
+              .trim()
+              .replace(/\s*\d+\s*км$/, "")
+              .trim();
+
+            const cargoText = cells[2].innerText.trim();
+            const rate = cells[3].innerText.replace(/\s+/g, " ").trim();
+            const ready = cells[4].innerText.replace(/\s+/g, " ").trim();
+            const vehicle = cells[5].innerText
+              .replace(/подробнее/gi, "")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            const weightMatch = cargoText.match(/([\d.,]+)\s*(т|тонн)/i);
+            const volumeMatch = cargoText.match(/([\d.,]+)\s*(м3|м³)/i);
+
+            const weight = weightMatch
+              ? weightMatch[1].replace(",", ".") + " т"
+              : "";
+            const volume = volumeMatch
+              ? volumeMatch[1].replace(",", ".") + " м³"
+              : "";
+
+            return {
+              from,
+              to,
+              cargo: cargoText,
+              weight,
+              volume,
+              rate,
+              ready,
+              vehicle,
+            };
+          })
+          .filter(Boolean);
+      });
+
+      await browser.close();
+
+      return res.json({
+        success: true,
+        totalFound: cargoList.length,
+        data: cargoList,
+      });
+    } catch (error) {
+      console.error("Ошибка при парсинге грузов:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Ошибка при парсинге грузов",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Парсинг всех машин с http://avtodispetcher.ru/truck/
+   * (без изменений)
+   */
+  async parseVehiclesFromAvtodispetcher(req, res) {
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        defaultViewport: null,
+      });
+      const page = await browser.newPage();
+
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      );
+
+      // Собираем ссылки на детальные страницы
+      const detailLinksSet = new Set();
+      let currentPage = 1;
+      const maxPages = 50;
+
+      while (true) {
+        const url =
+          currentPage === 1
+            ? "http://avtodispetcher.ru/truck/"
+            : `http://avtodispetcher.ru/truck/page/${currentPage}/`;
+        console.log(`Сканируем список машин, страница ${currentPage}: ${url}`);
+
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        });
+
+        const tableHandle = await page.$("table");
+        if (!tableHandle) {
+          console.log(`Нет таблицы на странице ${currentPage}, выходим.`);
+          break;
+        }
+
+        const links = await page.$$eval(
+          'table tr td a[href^="/truck/"][href$=".html"]',
+          (els) => els.map((el) => el.href)
+        );
+        console.log(
+          `На странице ${currentPage} найдено ссылок: ${links.length}`
+        );
+
+        if (!links.length) {
+          break;
+        }
+
+        links.forEach((link) => detailLinksSet.add(link));
+        currentPage++;
+        if (currentPage > maxPages) {
+          console.log(`Достигнут лимит ${maxPages} страниц, останавливаемся.`);
+          break;
+        }
+      }
+
+      console.log("Уникальных детальных ссылок:", detailLinksSet.size);
+
+      const results = [];
+      for (const link of detailLinksSet) {
+        console.log("Парсинг машины:", link);
+        await page.goto(link, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        });
+
+        try {
+          await page.waitForSelector("table", { timeout: 10000 });
+        } catch {
+          console.log("Нет таблицы на детальной странице:", link);
+          continue;
+        }
+
+        const detailData = await page.$$eval("table tr", (rows) => {
+          const data = {};
+          rows.forEach((row) => {
+            const tds = row.querySelectorAll("td");
+            if (tds.length === 2) {
+              const fieldName = tds[0].innerText.trim();
+              const fieldValue = tds[1].innerText.trim();
+              data[fieldName] = fieldValue;
+            }
+          });
+          return data;
+        });
+        console.log("Детальные данные:", detailData);
+
+        let telefon =
+          detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
+        if (!telefon) {
+          const phoneImg = await page.$(".phoneImg");
+          if (phoneImg) {
+            const tempFile = path.resolve(`phone-${uuidv4()}.png`);
+            await phoneImg.screenshot({ path: tempFile });
+            const {
+              data: { text },
+            } = await Tesseract.recognize(tempFile, "eng");
+            telefon = text.trim();
+            fs.unlinkSync(tempFile);
+          }
+        }
+        if (telefon) {
+          telefon = telefon.replace(/\D/g, "");
+          if (telefon[0] !== "7") {
+            telefon = "7" + telefon.slice(1);
+          }
+        }
+        const fullMarkaTip =
+          detailData["Марка и тип"] || detailData["Марка, тип"] || "";
+        let marka = "";
+        let tip = "";
+        if (fullMarkaTip) {
+          const parts = fullMarkaTip.split(/\s+/, 2);
+          marka = parts[0] || "";
+          tip = parts[1] || "";
+        }
+
+        results.push({
+          url: link,
+          marka,
+          tip,
+          kuzov: detailData["Кузов"] || "",
+          tip_zagruzki:
+            detailData["Загрузка"] || detailData["Тип загрузки"] || "",
+          gruzopodyomnost: detailData["Грузоподъемность"] || "",
+          vmestimost: detailData["Вместимость"] || "",
+          data_gotovnosti:
+            detailData["Готовность"] || detailData["Дата готовности"] || "",
+          otkuda: detailData["Откуда"] || "",
+          kuda: detailData["Куда"] || "",
+          telefon,
+          imya: detailData["Контактное лицо"] || detailData["Имя"] || "",
+          firma:
+            detailData["Профиль деятельности"] || detailData["Фирма"] || "",
+          gorod: detailData["Город"] || "",
+          pochta: detailData["Почта"] || "",
+          сompany: detailData["Название компании"] || "",
+        });
+      }
+
+      await browser.close();
+      return res.json({
+        success: true,
+        totalFound: results.length,
+        data: results,
+      });
+    } catch (error) {
+      console.error("Ошибка при парсинге машин:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Ошибка при парсинге машин",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Парсинг грузов с StranaGruzov.ru (пример без авторизации)
+   * Попытка парсить <table> (строки <tr>), если сайт действительно выводит объявления в табличном виде.
+   */
+  async parseStranaGruzovCargo(req, res) {
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        defaultViewport: null,
+      });
+      const page = await browser.newPage();
+
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      );
+
+      // Открываем страницу с грузами
+      await page.goto("https://stranagruzov.ru/Freight/Main/", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+
+      // Сохраняем HTML для отладки
+      const content = await page.content();
+      fs.writeFileSync("stranagruzov_cargo_debug.html", content, "utf8");
+
+      // Предположим, у каждого объявления класс row (или row freight).
+      // Если точно видите в DevTools "div.row.freight" - используйте 'div.row.freight'
+      // или используйте селектор: 'div[class^="row"]' чтобы охватить div.row...
+      await page.waitForSelector("div.row", { timeout: 20000 });
+
+      // Собираем все div с классом .row
+      const cargoList = await page.$$eval("div.row", (blocks) => {
+        return blocks.map((block) => {
+          const raw = block.innerText.trim();
+          // raw содержит все строки внутри объявления, например:
+          // "село Алешино ... 28-29 мар\nсело Сабуро-Покровское ... 780 RUB\n+7 904 461-71-92\nПодробнее"
+          // Вы можете распарсить это текстово, либо вернуть как есть.
+
+          // Пример простого парсинга (возвращаем всё как rawText):
+          return { rawText: raw };
+        });
+      });
+
+      await browser.close();
+      return res.json({
+        success: true,
+        totalFound: cargoList.length,
+        data: cargoList,
+      });
+    } catch (error) {
+      console.error("Ошибка при парсинге грузов с StranaGruzov:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Ошибка при парсинге грузов с StranaGruzov",
+        details: error.message,
+      });
+    }
+  }
+
+  async parseStranaGruzovVehicles(req, res) {
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        defaultViewport: null,
+      });
+      const page = await browser.newPage();
+
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      );
+
+      // Открываем страницу с машинами
+      await page.goto("https://stranagruzov.ru/Truck/Search/!/", {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+
+      // Сохраняем HTML для отладки
+      const content = await page.content();
+      fs.writeFileSync("stranagruzov_vehicle_debug.html", content, "utf8");
+
+      // Аналогично, ищем div.row (или другой класс)
+      await page.waitForSelector("div.row", { timeout: 20000 });
+
+      const vehicleList = await page.$$eval("div.row", (blocks) => {
+        return blocks.map((block) => {
+          const raw = block.innerText.trim();
+          // Здесь вы тоже можете парсить, если есть нужная структура.
+          // Для примера возвращаем всё как rawText:
+          return { rawText: raw };
+        });
+      });
+
+      await browser.close();
+      return res.json({
+        success: true,
+        totalFound: vehicleList.length,
+        data: vehicleList,
+      });
+    } catch (error) {
+      console.error("Ошибка при парсинге транспорта с StranaGruzov:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Ошибка при парсинге транспорта с StranaGruzov",
+        details: error.message,
+      });
+    }
+  }
+}
+
+export default new ParseController();
