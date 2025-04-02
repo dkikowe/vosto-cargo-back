@@ -76,8 +76,6 @@ app.post("/orders/restore", OrderController.restoreOrder);
 app.get("/parse-cargo", ParseController.parseAvtodispetcher);
 app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
 
-startTelegramListener();
-
 const port = process.env.PORT || 5050;
 
 app.listen(port, () => {
