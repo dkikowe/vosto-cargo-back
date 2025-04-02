@@ -272,10 +272,16 @@ export async function startTelegramListener() {
       for (let block of blocks) {
         try {
           const dataTelega = JSON.parse(block);
+          const existing = await CargoOrder.findOne({
+            description: dataTelega.description,
+            from: dataTelega.from,
+            to: dataTelega.to,
+            ready: dataTelega.ready,
+          });
           console.log("Сохранение данных:", dataTelega);
-          if (dataTelega.orderType === "CargoOrder") {
+          if (dataTelega.orderType === "CargoOrder" && !existing) {
             await CargoOrder.create(dataTelega);
-          } else if (dataTelega.orderType === "MachineOrder") {
+          } else if (dataTelega.orderType === "MachineOrder" && !existing) {
             await MachineOrder.create(dataTelega);
           }
         } catch (err) {
