@@ -10,6 +10,7 @@ dotenv.config();
 import * as UserController from "./controllers/UserController.js";
 import * as OrderController from "./controllers/OrderController.js"; // Импорт контроллера заказов
 import ParseController from "./controllers/ParseController.js";
+import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import "./jobs.js";
 
 const errorMsg = chalk.bgWhite.redBright;
@@ -74,6 +75,8 @@ app.post("/orders/restore", OrderController.restoreOrder);
 // ---------- Маршруты для парсинга ----------
 app.get("/parse-cargo", ParseController.parseAvtodispetcher);
 app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
+
+startTelegramListener();
 
 const port = process.env.PORT || 5050;
 

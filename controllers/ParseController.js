@@ -5,8 +5,34 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
 class ParseController {
+  // Функция логина на Avtodispetcher через https://www.avtodispetcher.ru/login.html
+  async loginAvtodispetcher(page) {
+    console.log("Логин на Avtodispetcher...");
+    await page.goto("https://www.avtodispetcher.ru/login.html", {
+      waitUntil: "networkidle2",
+      timeout: 60000,
+    });
+    // Ждем появления полей ввода (проверьте актуальные селекторы)
+    await page.waitForSelector("input[name='email']", { timeout: 10000 });
+    await page.waitForSelector("input[name='password']", { timeout: 10000 });
+    await page.type("input[name='email']", "didokio123@yandex.ru", {
+      delay: 100,
+    });
+    await page.type("input[name='password']", "8AKuOdsWj", { delay: 100 });
+    await page.click("input[type='submit']");
+    // Ждем перехода после входа
+    await page.goto("https://www.avtodispetcher.ru/", {
+      waitUntil: "domcontentloaded",
+      timeout: 120000, // увеличен таймаут до 120 секунд
+    });
+
+    console.log("Логин выполнен.");
+  }
+
   /**
    * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
+   * Теперь реализована пагинация – перебираются страницы, как у машин, и для каждой строки,
+   * если есть детальная ссылка, открывается детальная страница для получения номера телефона.
    */
   async parseAvtodispetcher(req, res) {
     try {
@@ -21,64 +47,152 @@ class ParseController {
         defaultViewport: null,
       });
       const page = await browser.newPage();
-
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
+      // Логинимся, чтобы получить доступ к номерам телефонов
+      await this.loginAvtodispetcher(page);
 
-      await page.goto("https://www.avtodispetcher.ru/consignor/", {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-      await page.waitForSelector("table");
+      const maxPages = 2;
+      let currentPage = 1;
+      const cargoList = [];
 
-      const cargoList = await page.$$eval("table tr", (rows) => {
-        return Array.from(rows)
-          .slice(1)
-          .map((row) => {
-            const cells = row.querySelectorAll("td");
-            if (cells.length < 6) return null;
+      while (true) {
+        const url =
+          currentPage === 1
+            ? "https://www.avtodispetcher.ru/consignor/"
+            : `https://www.avtodispetcher.ru/consignor/page-2`;
+        console.log(`Парсинг грузов, страница ${currentPage}: ${url}`);
 
-            const from = cells[0].innerText.trim();
-            let to = cells[1].innerText
-              .trim()
-              .replace(/\s*\d+\s*км$/, "")
-              .trim();
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout: 120000,
+        });
+        // Если таблица не найдена – прекращаем цикл
+        const tableHandle = await page.$("table");
+        if (!tableHandle) {
+          console.log(
+            `Нет таблицы на странице ${currentPage}, завершаем парсинг грузов.`
+          );
+          break;
+        }
+        // Получаем строки таблицы
+        const rows = await page.$$("table tr");
+        console.log(`Страница ${currentPage}: найдено строк ${rows.length}`);
+        // Пропускаем заголовок (первая строка)
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          const cells = await row.$$("td");
+          if (cells.length < 6) continue;
 
-            const cargoText = cells[2].innerText.trim();
-            const rate = cells[3].innerText.replace(/\s+/g, " ").trim();
-            const ready = cells[4].innerText.replace(/\s+/g, " ").trim();
-            const vehicle = cells[5].innerText
-              .replace(/подробнее/gi, "")
-              .replace(/\s+/g, " ")
-              .trim();
+          const from = (
+            await (await cells[0].getProperty("innerText")).jsonValue()
+          ).trim();
+          let toRaw = (
+            await (await cells[1].getProperty("innerText")).jsonValue()
+          ).trim();
+          let to = toRaw.replace(/\s*\d+\s*км$/, "").trim();
+          const cargoText = (
+            await (await cells[2].getProperty("innerText")).jsonValue()
+          ).trim();
+          const rate = (
+            await (await cells[3].getProperty("innerText")).jsonValue()
+          )
+            .replace(/\s+/g, " ")
+            .trim();
+          const ready = (
+            await (await cells[4].getProperty("innerText")).jsonValue()
+          )
+            .replace(/\s+/g, " ")
+            .trim();
+          const vehicle = (
+            await (await cells[5].getProperty("innerText")).jsonValue()
+          )
+            .replace(/подробнее/gi, "")
+            .replace(/\s+/g, " ")
+            .trim();
 
-            const weightMatch = cargoText.match(/([\d.,]+)\s*(т|тонн)/i);
-            const volumeMatch = cargoText.match(/([\d.,]+)\s*(м3|м³)/i);
+          const weightMatch = cargoText.match(/([\d.,]+)\s*(т|тонн)/i);
+          const volumeMatch = cargoText.match(/([\d.,]+)\s*(м3|м³)/i);
+          const weight = weightMatch
+            ? weightMatch[1].replace(",", ".") + " т"
+            : "";
+          const volume = volumeMatch
+            ? volumeMatch[1].replace(",", ".") + " м³"
+            : "";
 
-            const weight = weightMatch
-              ? weightMatch[1].replace(",", ".") + " т"
-              : "";
-            const volume = volumeMatch
-              ? volumeMatch[1].replace(",", ".") + " м³"
-              : "";
+          // Пытаемся найти детальную ссылку – ищем первый <a> в строке
+          let detailLink = null;
+          const anchor = await row.$("a");
+          if (anchor) {
+            detailLink = await (await anchor.getProperty("href")).jsonValue();
+          }
 
-            return {
-              from,
-              to,
-              cargo: cargoText,
-              weight,
-              volume,
-              rate,
-              ready,
-              vehicle,
-            };
-          })
-          .filter(Boolean);
-      });
+          let telefon = "";
+          if (detailLink) {
+            const detailPage = await browser.newPage();
+            try {
+              await detailPage.goto(detailLink, {
+                waitUntil: "domcontentloaded",
+                timeout: 60000,
+              });
+              // Ищем элемент с изображением телефона
+              const phoneImg = await detailPage.$(".phoneImg");
+              if (phoneImg) {
+                const tempFile = path.resolve(`phone-${uuidv4()}.png`);
+                try {
+                  await phoneImg.screenshot({ path: tempFile });
+                  const {
+                    data: { text },
+                  } = await Tesseract.recognize(tempFile, "eng");
+                  telefon = text.trim();
+                  fs.unlinkSync(tempFile);
+                } catch (screenshotError) {
+                  console.log(
+                    "Ошибка при скриншоте телефона:",
+                    screenshotError
+                  );
+                }
+              }
+              if (telefon) {
+                telefon = telefon.replace(/\D/g, "");
+                if (telefon[0] !== "7") {
+                  telefon = "7" + telefon.slice(1);
+                }
+              }
+            } catch (detailError) {
+              console.log(
+                "Ошибка при парсинге детальной страницы:",
+                detailError
+              );
+            } finally {
+              await detailPage.close();
+            }
+          }
+
+          cargoList.push({
+            from,
+            to,
+            cargo: cargoText,
+            weight,
+            volume,
+            rate,
+            ready,
+            vehicle,
+            telefon,
+          });
+        }
+        currentPage++;
+        // Если достигли лимита страниц, прекращаем цикл
+        if (currentPage > maxPages) {
+          console.log(
+            `Достигнут лимит ${maxPages} страниц, завершаем парсинг грузов.`
+          );
+          break;
+        }
+      }
 
       await browser.close();
-
       return res.json({
         success: true,
         totalFound: cargoList.length,
@@ -96,7 +210,8 @@ class ParseController {
 
   /**
    * Парсинг всех машин с https://avtodispetcher.ru/truck/
-   * Теперь с параллельной (chunk) обработкой детальных ссылок
+   * Параллельная обработка детальных ссылок (chunk)
+   * (Для машин консольные логи убраны)
    */
   async parseVehiclesFromAvtodispetcher(req, res) {
     try {
@@ -111,35 +226,26 @@ class ParseController {
         defaultViewport: null,
       });
       const page = await browser.newPage();
-
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
 
-      // Собираем ссылки на детальные страницы со всех страниц
+      await this.loginAvtodispetcher(page);
+
       const detailLinksSet = new Set();
       let currentPage = 1;
-      const maxPages = 50;
-
+      const maxPages = 47;
       while (true) {
         const url =
           currentPage === 1
             ? "https://avtodispetcher.ru/truck/"
-            : `https://avtodispetcher.ru/truck/page/${currentPage}/`;
-        console.log(`Сканируем список машин, страница ${currentPage}: ${url}`);
-
+            : `https://avtodispetcher.ru/truck/page-${currentPage}`;
         await page.goto(url, {
           waitUntil: "domcontentloaded",
           timeout: 60000,
         });
-
         const tableHandle = await page.$("table");
-        if (!tableHandle) {
-          console.log(`Нет таблицы на странице ${currentPage}, выходим.`);
-          break;
-        }
-
-        // Преобразуем относительные ссылки в абсолютные с https
+        if (!tableHandle) break;
         const links = await page.$$eval(
           'table tr td a[href^="/truck/"][href$=".html"]',
           (els) =>
@@ -149,48 +255,25 @@ class ParseController {
                   .href
             )
         );
-        console.log(
-          `На странице ${currentPage} найдено ссылок: ${links.length}`
-        );
-
-        if (!links.length) {
-          break;
-        }
-
+        if (!links.length) break;
+        if (currentPage === 48) break;
         links.forEach((link) => detailLinksSet.add(link));
         currentPage++;
-        if (currentPage > maxPages) {
-          console.log(`Достигнут лимит ${maxPages} страниц, останавливаемся.`);
-          break;
-        }
+        if (currentPage > maxPages) break;
       }
-
-      console.log("Уникальных детальных ссылок:", detailLinksSet.size);
-
-      // Преобразуем Set в массив, чтобы обрабатывать чанками
       const detailLinks = Array.from(detailLinksSet);
-
-      // Сколько страниц обрабатываем параллельно
       const chunkSize = 5;
       const results = [];
-
-      // Функция, парсящая одну детальную ссылку
       const parseOneVehicle = async (link) => {
-        console.log("Парсинг машины:", link);
         const pageDetail = await browser.newPage();
         try {
           await pageDetail.goto(link, {
             waitUntil: "domcontentloaded",
             timeout: 60000,
           });
-
           try {
             await pageDetail.waitForSelector("table", { timeout: 10000 });
-          } catch {
-            console.log("Нет таблицы на детальной странице:", link);
-          }
-
-          // Парсим данные из таблицы
+          } catch {}
           const detailData = await pageDetail.$$eval("table tr", (rows) => {
             const data = {};
             rows.forEach((row) => {
@@ -203,12 +286,8 @@ class ParseController {
             });
             return data;
           });
-          console.log("Детальные данные:", detailData);
-
           let telefon =
             detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
-
-          // Если телефон не найден, пытаемся найти .phoneImg
           if (!telefon) {
             const phoneImg = await pageDetail.$(".phoneImg");
             if (phoneImg) {
@@ -220,22 +299,15 @@ class ParseController {
                 } = await Tesseract.recognize(tempFile, "eng");
                 telefon = text.trim();
                 fs.unlinkSync(tempFile);
-              } catch (screenshotError) {
-                console.log("Ошибка при скриншоте телефона:", screenshotError);
-              }
+              } catch {}
             }
           }
-
           if (telefon) {
-            // Убираем все нецифровые символы
             telefon = telefon.replace(/\D/g, "");
-            // Если первая цифра не "7", заменяем её на "7"
             if (telefon[0] !== "7") {
               telefon = "7" + telefon.slice(1);
             }
           }
-
-          // Разбиваем "Марка и тип"
           const fullMarkaTip =
             detailData["Марка и тип"] || detailData["Марка, тип"] || "";
           let marka = "";
@@ -245,7 +317,6 @@ class ParseController {
             marka = parts[0] || "";
             tip = parts[1] || "";
           }
-
           return {
             url: link,
             marka,
@@ -278,9 +349,7 @@ class ParseController {
         const chunkResults = await Promise.all(chunkPromises);
         results.push(...chunkResults);
       }
-
       await browser.close();
-
       return res.json({
         success: true,
         totalFound: results.length,

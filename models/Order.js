@@ -22,7 +22,6 @@ const orderSchema = new mongoose.Schema(
     // Способ оплаты (Кэш или Карта)
     paymentMethod: {
       type: String,
-      enum: ["Кэш", "Карта"],
       required: false,
     },
   },
@@ -49,6 +48,7 @@ const CargoOrderSchema = new mongoose.Schema({
   ready: { type: String, required: false },
   // Тип транспортного средства, требуемого для перевозки (например, "тент", "рефрижератор")
   vehicle: { type: String, required: false },
+  telefon: { type: String, required: false },
 });
 
 // Создаём дискриминатор для грузов на базе Order
