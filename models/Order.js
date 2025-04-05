@@ -28,6 +28,8 @@ const orderSchema = new mongoose.Schema(
   options
 );
 
+orderSchema.index({ createdAt: 1 }, { expireAfterSeconds: 604800 });
+
 export const Order = mongoose.model("Order", orderSchema);
 
 // ------------------ Схема для грузов (CargoOrder) ------------------

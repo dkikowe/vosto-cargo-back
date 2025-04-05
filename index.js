@@ -11,6 +11,7 @@ import * as UserController from "./controllers/UserController.js";
 import * as OrderController from "./controllers/OrderController.js"; // Импорт контроллера заказов
 import ParseController from "./controllers/ParseController.js";
 import { startTelegramListener } from "./controllers/TelegaParser.mjs";
+import { getDistance } from "./controllers/CalculatorController.js";
 import "./jobs.js";
 
 const errorMsg = chalk.bgWhite.redBright;
@@ -59,6 +60,8 @@ app.get("/getCompany/:id", UserController.getCompany);
 
 // Маршрут для сохранения темы
 app.post("/saveTheme", UserController.saveTheme);
+
+app.get("/api/distance", getDistance);
 
 // ---------- Маршруты для заказов ----------
 app.post("/orders", OrderController.createOrder);

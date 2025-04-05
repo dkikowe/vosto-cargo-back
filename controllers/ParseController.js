@@ -10,7 +10,7 @@ class ParseController {
     console.log("Логин на Avtodispetcher...");
     await page.goto("https://www.avtodispetcher.ru/login.html", {
       waitUntil: "networkidle2",
-      timeout: 60000,
+      timeout: 120000,
     });
     // Ждем появления полей ввода (проверьте актуальные селекторы)
     await page.waitForSelector("input[name='email']", { timeout: 10000 });
