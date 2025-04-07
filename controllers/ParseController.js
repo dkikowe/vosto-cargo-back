@@ -23,15 +23,14 @@ class ParseController {
     // Ждем перехода после входа
     await page.goto("https://www.avtodispetcher.ru/", {
       waitUntil: "domcontentloaded",
-      timeout: 120000, // увеличен таймаут до 120 секунд
+      timeout: 120000,
     });
-
     console.log("Логин выполнен.");
   }
 
   /**
    * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
-   * Теперь реализована пагинация – перебираются страницы, как у машин, и для каждой строки,
+   * Реализована пагинация – перебираются страницы, и для каждой строки,
    * если есть детальная ссылка, открывается детальная страница для получения номера телефона.
    */
   async parseAvtodispetcher(req, res) {
@@ -53,15 +52,19 @@ class ParseController {
       // Логинимся, чтобы получить доступ к номерам телефонов
       await this.loginAvtodispetcher(page);
 
+      // Сохраняем cookies после логина для последующей передачи в новые страницы
+      const sessionCookies = await page.cookies();
+
       const maxPages = 2;
       let currentPage = 1;
       const cargoList = [];
 
       while (true) {
+        // Динамически формируем URL для каждой страницы
         const url =
           currentPage === 1
             ? "https://www.avtodispetcher.ru/consignor/"
-            : `https://www.avtodispetcher.ru/consignor/page-2`;
+            : `https://www.avtodispetcher.ru/consignor/page-${currentPage}`;
         console.log(`Парсинг грузов, страница ${currentPage}: ${url}`);
 
         await page.goto(url, {
@@ -131,6 +134,8 @@ class ParseController {
           let telefon = "";
           if (detailLink) {
             const detailPage = await browser.newPage();
+            // Устанавливаем cookies для сохранения сессии
+            await detailPage.setCookie(...sessionCookies);
             try {
               await detailPage.goto(detailLink, {
                 waitUntil: "domcontentloaded",
