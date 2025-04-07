@@ -11,7 +11,7 @@ import * as UserController from "./controllers/UserController.js";
 import * as OrderController from "./controllers/OrderController.js"; // Импорт контроллера заказов
 import ParseController from "./controllers/ParseController.js";
 import { startTelegramListener } from "./controllers/TelegaParser.mjs";
-import { getDistance } from "./controllers/CalculatorController.js";
+import { getDistance } from "./controllers/RouteController.js";
 import "./jobs.js";
 
 const errorMsg = chalk.bgWhite.redBright;
