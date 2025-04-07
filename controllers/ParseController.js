@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 class ParseController {
   async loginAvtodispetcher(page) {
     console.log("Логин на Avtodispetcher...");
-    await page.goto("https://www.avtodispetcher.ru/login.html", {
+    await page.goto("https://avtodispetcher.ru/login.html", {
       waitUntil: "networkidle2",
       timeout: 120000,
     });
