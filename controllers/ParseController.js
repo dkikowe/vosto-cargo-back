@@ -211,7 +211,7 @@ class ParseController {
   /**
    * Парсинг всех машин с https://avtodispetcher.ru/truck/
    * Параллельная обработка детальных ссылок (chunk)
-   * (Для машин консольные логи убраны)
+   * Добавлены консольные логи
    */
   async parseVehiclesFromAvtodispetcher(req, res) {
     try {
@@ -233,17 +233,25 @@ class ParseController {
       const detailLinksSet = new Set();
       let currentPage = 1;
       const maxPages = 47;
+      console.log("Начинаем парсинг машин с Avtodispetcher...");
+
       while (true) {
         const url =
           currentPage === 1
             ? "https://avtodispetcher.ru/truck/"
             : `https://avtodispetcher.ru/truck/page-${currentPage}`;
+        console.log(`Парсинг машин, страница ${currentPage}: ${url}`);
         await page.goto(url, {
           waitUntil: "domcontentloaded",
           timeout: 60000,
         });
+
         const tableHandle = await page.$("table");
-        if (!tableHandle) break;
+        if (!tableHandle) {
+          console.log(`Нет таблицы на странице ${currentPage}, завершаем.`);
+          break;
+        }
+
         const links = await page.$$eval(
           'table tr td a[href^="/truck/"][href$=".html"]',
           (els) =>
@@ -253,18 +261,35 @@ class ParseController {
                   .href
             )
         );
-        if (!links.length) break;
-        if (currentPage === 48) break;
+        console.log(
+          `Найдено ${links.length} ссылок на странице ${currentPage}`
+        );
+
+        if (!links.length) {
+          console.log("Ссылки не найдены, останавливаемся.");
+          break;
+        }
+
         links.forEach((link) => detailLinksSet.add(link));
         currentPage++;
-        if (currentPage > maxPages) break;
+        if (currentPage > maxPages) {
+          console.log(`Достигнут лимит ${maxPages} страниц.`);
+          break;
+        }
       }
+
       const detailLinks = Array.from(detailLinksSet);
+      console.log(`Всего собрано ${detailLinks.length} уникальных ссылок.`);
+
       const chunkSize = 5;
       const results = [];
-      const parseOneVehicle = async (link) => {
+
+      const parseOneVehicle = async (link, index) => {
         const pageDetail = await browser.newPage();
         try {
+          console.log(
+            `[${index + 1}/${detailLinks.length}] Обработка: ${link}`
+          );
           await pageDetail.goto(link, {
             waitUntil: "domcontentloaded",
             timeout: 60000,
@@ -272,6 +297,7 @@ class ParseController {
           try {
             await pageDetail.waitForSelector("table", { timeout: 10000 });
           } catch {}
+
           const detailData = await pageDetail.$$eval("table tr", (rows) => {
             const data = {};
             rows.forEach((row) => {
@@ -284,8 +310,10 @@ class ParseController {
             });
             return data;
           });
+
           let telefon =
             detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
+
           if (!telefon) {
             const phoneImg = await pageDetail.$(".phoneImg");
             if (phoneImg) {
@@ -297,15 +325,19 @@ class ParseController {
                 } = await Tesseract.recognize(tempFile, "eng");
                 telefon = text.trim();
                 fs.unlinkSync(tempFile);
-              } catch {}
+              } catch (err) {
+                console.log("Ошибка при распознавании номера:", err.message);
+              }
             }
           }
+
           if (telefon) {
             telefon = telefon.replace(/\D/g, "");
             if (telefon[0] !== "7") {
               telefon = "7" + telefon.slice(1);
             }
           }
+
           const fullMarkaTip =
             detailData["Марка и тип"] || detailData["Марка, тип"] || "";
           let marka = "";
@@ -315,6 +347,7 @@ class ParseController {
             marka = parts[0] || "";
             tip = parts[1] || "";
           }
+
           return {
             url: link,
             marka,
@@ -343,11 +376,15 @@ class ParseController {
 
       for (let i = 0; i < detailLinks.length; i += chunkSize) {
         const chunk = detailLinks.slice(i, i + chunkSize);
-        const chunkPromises = chunk.map((link) => parseOneVehicle(link));
-        const chunkResults = await Promise.all(chunkPromises);
+        console.log(`Обработка чанка: ${i + 1} – ${i + chunk.length}`);
+        const chunkResults = await Promise.all(
+          chunk.map((link, index) => parseOneVehicle(link, i + index))
+        );
         results.push(...chunkResults);
       }
+
       await browser.close();
+      console.log(`Парсинг завершён. Найдено ${results.length} машин.`);
       return res.json({
         success: true,
         totalFound: results.length,
