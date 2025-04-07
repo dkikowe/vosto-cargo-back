@@ -137,7 +137,8 @@ class ParseController {
                 timeout: 120000,
               });
 
-              await detailPage.waitForTimeout(1500); // дать странице время отрисовать
+              // Подождать, чтобы телефон успел отрисоваться
+              await new Promise((resolve) => setTimeout(resolve, 1500));
 
               const phoneImg = await detailPage.$(".phoneImg");
               if (phoneImg) {
@@ -157,7 +158,9 @@ class ParseController {
                     console.log("Ошибка OCR:", screenshotError.message);
                   }
                 } else {
-                  console.log("Телефонное изображение не загрузилось.");
+                  console.log(
+                    "Телефонное изображение не загрузилось или пустое."
+                  );
                 }
               }
 
