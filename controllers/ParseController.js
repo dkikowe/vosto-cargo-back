@@ -5,14 +5,12 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 
 class ParseController {
-  // Функция логина на Avtodispetcher через https://www.avtodispetcher.ru/login.html
   async loginAvtodispetcher(page) {
     console.log("Логин на Avtodispetcher...");
     await page.goto("https://www.avtodispetcher.ru/login.html", {
       waitUntil: "networkidle2",
       timeout: 120000,
     });
-    // Ждем появления полей ввода (проверьте актуальные селекторы)
     await page.waitForSelector("input[name='email']", { timeout: 10000 });
     await page.waitForSelector("input[name='password']", { timeout: 10000 });
     await page.type("input[name='email']", "didokio123@yandex.ru", {
@@ -20,7 +18,6 @@ class ParseController {
     });
     await page.type("input[name='password']", "8AKuOdsWj", { delay: 100 });
     await page.click("input[type='submit']");
-    // Ждем перехода после входа
     await page.goto("https://www.avtodispetcher.ru/", {
       waitUntil: "domcontentloaded",
       timeout: 120000,
@@ -28,11 +25,6 @@ class ParseController {
     console.log("Логин выполнен.");
   }
 
-  /**
-   * Парсинг грузов с https://www.avtodispetcher.ru/consignor/
-   * Реализована пагинация – перебираются страницы, и для каждой строки,
-   * если есть детальная ссылка, открывается детальная страница для получения номера телефона.
-   */
   async parseAvtodispetcher(req, res) {
     try {
       const browser = await puppeteer.launch({
@@ -49,18 +41,15 @@ class ParseController {
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
-      // Логинимся, чтобы получить доступ к номерам телефонов
       await this.loginAvtodispetcher(page);
-
-      // Сохраняем cookies после логина для последующей передачи в новые страницы
       const sessionCookies = await page.cookies();
 
       const maxPages = 2;
       let currentPage = 1;
       const cargoList = [];
+      let orderNumber = 1;
 
       while (true) {
-        // Динамически формируем URL для каждой страницы
         const url =
           currentPage === 1
             ? "https://www.avtodispetcher.ru/consignor/"
@@ -71,7 +60,6 @@ class ParseController {
           waitUntil: "domcontentloaded",
           timeout: 120000,
         });
-        // Если таблица не найдена – прекращаем цикл
         const tableHandle = await page.$("table");
         if (!tableHandle) {
           console.log(
@@ -79,10 +67,8 @@ class ParseController {
           );
           break;
         }
-        // Получаем строки таблицы
         const rows = await page.$$("table tr");
         console.log(`Страница ${currentPage}: найдено строк ${rows.length}`);
-        // Пропускаем заголовок (первая строка)
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i];
           const cells = await row.$$("td");
@@ -124,7 +110,6 @@ class ParseController {
             ? volumeMatch[1].replace(",", ".") + " м³"
             : "";
 
-          // Пытаемся найти детальную ссылку – ищем первый <a> в строке
           let detailLink = null;
           const anchor = await row.$("a");
           if (anchor) {
@@ -134,15 +119,12 @@ class ParseController {
           let telefon = "";
           if (detailLink) {
             const detailPage = await browser.newPage();
-            // Устанавливаем cookies для сохранения сессии
             await detailPage.setCookie(...sessionCookies);
             try {
               await detailPage.goto(detailLink, {
                 waitUntil: "domcontentloaded",
                 timeout: 120000,
               });
-
-              // Подождать, чтобы телефон успел отрисоваться
               await new Promise((resolve) => setTimeout(resolve, 1500));
 
               const phoneImg = await detailPage.$(".phoneImg");
@@ -190,6 +172,7 @@ class ParseController {
           }
 
           cargoList.push({
+            orderNumber,
             from,
             to,
             cargo: cargoText,
@@ -200,9 +183,9 @@ class ParseController {
             vehicle,
             telefon,
           });
+          orderNumber++;
         }
         currentPage++;
-        // Если достигли лимита страниц, прекращаем цикл
         if (currentPage > maxPages) {
           console.log(
             `Достигнут лимит ${maxPages} страниц, завершаем парсинг грузов.`
@@ -227,11 +210,6 @@ class ParseController {
     }
   }
 
-  /**
-   * Парсинг всех машин с https://avtodispetcher.ru/truck/
-   * Параллельная обработка детальных ссылок (chunk)
-   * Добавлены консольные логи
-   */
   async parseVehiclesFromAvtodispetcher(req, res) {
     try {
       const browser = await puppeteer.launch({
@@ -303,11 +281,11 @@ class ParseController {
       const chunkSize = 5;
       const results = [];
 
-      const parseOneVehicle = async (link, index) => {
+      const parseOneVehicle = async (link, globalIndex) => {
         const pageDetail = await browser.newPage();
         try {
           console.log(
-            `[${index + 1}/${detailLinks.length}] Обработка: ${link}`
+            `[${globalIndex + 1}/${detailLinks.length}] Обработка: ${link}`
           );
           await pageDetail.goto(link, {
             waitUntil: "domcontentloaded",
@@ -368,6 +346,7 @@ class ParseController {
           }
 
           return {
+            orderNumber: globalIndex + 1,
             url: link,
             marka,
             tip,

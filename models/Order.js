@@ -39,7 +39,10 @@ orderSchema.index({ createdAt: 1 }, { expireAfterSeconds: 604800 });
 
 // Автоинкремент orderNumber при создании
 orderSchema.pre("save", async function (next) {
-  if (this.isNew && !this.orderNumber) {
+  if (
+    this.isNew &&
+    (this.orderNumber === null || this.orderNumber === undefined)
+  ) {
     try {
       const counter = await Counter.findByIdAndUpdate(
         { _id: "orderNumber" },
