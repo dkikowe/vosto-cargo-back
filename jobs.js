@@ -13,7 +13,11 @@ async function runParsingJob() {
     );
     const cargoData = cargoRes.data;
     await CargoOrder.deleteMany({});
-    await CargoOrder.insertMany(cargoData);
+    // Сохраняем каждый груз индивидуально, чтобы сработал pre-save хук
+    for (const cargo of cargoData) {
+      const cargoOrder = new CargoOrder(cargo);
+      await cargoOrder.save();
+    }
 
     // Парсим машины
     const machineRes = await ParseController.parseVehiclesFromAvtodispetcher(
@@ -22,7 +26,11 @@ async function runParsingJob() {
     );
     const machineData = machineRes.data;
     await MachineOrder.deleteMany({});
-    await MachineOrder.insertMany(machineData);
+    // Сохраняем каждую машину индивидуально
+    for (const machine of machineData) {
+      const machineOrder = new MachineOrder(machine);
+      await machineOrder.save();
+    }
 
     console.log("Парсинг и сохранение завершены успешно.");
   } catch (error) {
