@@ -44,12 +44,16 @@ orderSchema.pre("save", async function (next) {
     (this.orderNumber === null || this.orderNumber === undefined)
   ) {
     try {
-      const counter = await Counter.findByIdAndUpdate(
-        { _id: "orderNumber" },
-        { $inc: { seq: 1 } },
-        { new: true, upsert: true }
-      );
-      this.orderNumber = counter.seq;
+      const min = 1;
+      const max = 100000; // Диапазон можно изменить по требованиям
+      let newNumber;
+      let exists = true;
+      // Генерируем новый orderNumber, пока не найдём уникальное значение
+      do {
+        newNumber = Math.floor(Math.random() * (max - min + 1)) + min;
+        exists = await this.constructor.exists({ orderNumber: newNumber });
+      } while (exists);
+      this.orderNumber = newNumber;
     } catch (err) {
       return next(err);
     }
