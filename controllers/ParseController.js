@@ -134,31 +134,42 @@ class ParseController {
             try {
               await detailPage.goto(detailLink, {
                 waitUntil: "domcontentloaded",
-                timeout: 60000,
+                timeout: 120000,
               });
-              // Ищем элемент с изображением телефона
+
+              await detailPage.waitForTimeout(1500); // дать странице время отрисовать
+
               const phoneImg = await detailPage.$(".phoneImg");
               if (phoneImg) {
-                const tempFile = path.resolve(`phone-${uuidv4()}.png`);
-                try {
-                  await phoneImg.screenshot({ path: tempFile });
-                  const {
-                    data: { text },
-                  } = await Tesseract.recognize(tempFile, "eng");
-                  telefon = text.trim();
-                  fs.unlinkSync(tempFile);
-                } catch (screenshotError) {
-                  console.log(
-                    "Ошибка при скриншоте телефона:",
-                    screenshotError
-                  );
+                const box = await phoneImg.boundingBox();
+                if (box && box.width > 20) {
+                  const tempFile = path.resolve(`phone-${uuidv4()}.png`);
+                  try {
+                    await phoneImg.screenshot({ path: tempFile });
+                    const {
+                      data: { text },
+                    } = await Tesseract.recognize(tempFile, "eng", {
+                      tessedit_char_whitelist: "0123456789+() ",
+                    });
+                    telefon = text.trim();
+                    fs.unlinkSync(tempFile);
+                  } catch (screenshotError) {
+                    console.log("Ошибка OCR:", screenshotError.message);
+                  }
+                } else {
+                  console.log("Телефонное изображение не загрузилось.");
                 }
               }
+
               if (telefon) {
                 telefon = telefon.replace(/\D/g, "");
                 if (telefon[0] !== "7") {
                   telefon = "7" + telefon.slice(1);
                 }
+              } else {
+                console.log(
+                  `Номер не найден для груза по ссылке: ${detailLink}`
+                );
               }
             } catch (detailError) {
               console.log(
@@ -312,7 +323,7 @@ class ParseController {
           });
 
           let telefon =
-            detailData["Контактный телефон №1"] || detailData["Телефон"] || "";
+            detailData["Контактный телефон №1"] || detailData["Телефон"];
 
           if (!telefon) {
             const phoneImg = await pageDetail.$(".phoneImg");
