@@ -18,6 +18,12 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    source: {
+      type: String,
+      enum: ["parser", "manual"],
+      default: "manual",
+      index: true,
+    },
     description: { type: String, required: false },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -12,11 +12,13 @@ async function runParsingJob() {
       { json: (data) => data }
     );
     const cargoData = cargoRes.data;
-    await CargoOrder.deleteMany({});
+
+    // Удаляем только те заказы, которые были созданы парсером
+    await CargoOrder.deleteMany({ source: "parser" });
 
     for (const cargo of cargoData) {
       const { orderNumber, ...rest } = cargo;
-      const cargoOrder = new CargoOrder(rest);
+      const cargoOrder = new CargoOrder({ ...rest, source: "parser" });
       await cargoOrder.save();
     }
 
@@ -26,11 +28,12 @@ async function runParsingJob() {
       { json: (data) => data }
     );
     const machineData = machineRes.data;
-    await MachineOrder.deleteMany({});
+
+    await MachineOrder.deleteMany({ source: "parser" });
 
     for (const machine of machineData) {
       const { orderNumber, ...rest } = machine;
-      const machineOrder = new MachineOrder(rest);
+      const machineOrder = new MachineOrder({ ...rest, source: "parser" });
       await machineOrder.save();
     }
 
