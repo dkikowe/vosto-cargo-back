@@ -172,7 +172,6 @@ class ParseController {
           }
 
           cargoList.push({
-            orderNumber,
             from,
             to,
             cargo: cargoText,
@@ -346,7 +345,6 @@ class ParseController {
           }
 
           return {
-            orderNumber: globalIndex + 1,
             url: link,
             marka,
             tip,

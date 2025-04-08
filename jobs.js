@@ -13,9 +13,10 @@ async function runParsingJob() {
     );
     const cargoData = cargoRes.data;
     await CargoOrder.deleteMany({});
-    // Сохраняем каждый груз индивидуально, чтобы сработал pre-save хук
+
     for (const cargo of cargoData) {
-      const cargoOrder = new CargoOrder(cargo);
+      const { orderNumber, ...rest } = cargo;
+      const cargoOrder = new CargoOrder(rest);
       await cargoOrder.save();
     }
 
@@ -26,9 +27,10 @@ async function runParsingJob() {
     );
     const machineData = machineRes.data;
     await MachineOrder.deleteMany({});
-    // Сохраняем каждую машину индивидуально
+
     for (const machine of machineData) {
-      const machineOrder = new MachineOrder(machine);
+      const { orderNumber, ...rest } = machine;
+      const machineOrder = new MachineOrder(rest);
       await machineOrder.save();
     }
 
