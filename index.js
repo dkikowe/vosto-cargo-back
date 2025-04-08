@@ -12,6 +12,7 @@ import * as OrderController from "./controllers/OrderController.js"; // Импо
 import ParseController from "./controllers/ParseController.js";
 import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
+import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import "./jobs.js";
 
 const errorMsg = chalk.bgWhite.redBright;
@@ -53,6 +54,8 @@ app.post(
 app.post("/setRole", UserController.setRole);
 app.post("/saveName", UserController.changeUserName);
 app.get("/getUsers", UserController.getUsers);
+
+app.get("/getShippingCalculation", getShippingCalculation);
 
 // Маршруты для обновления информации о компании
 app.post("/updateCompany", UserController.updateCompany);

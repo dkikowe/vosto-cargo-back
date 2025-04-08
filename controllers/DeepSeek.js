@@ -1,11 +1,42 @@
 import axios from "axios";
 
+// Рекомендуется хранить ключ в .env
+const GOOGLE_API_KEY = "AIzaSyDJHu7ZujgYjhEUD6dZQCPnyZlINNSFh9c";
+
+async function fetchDistance(cityA, cityB) {
+  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
+    cityA
+  )}&destinations=${encodeURIComponent(
+    cityB
+  )}&key=${GOOGLE_API_KEY}&units=metric`;
+
+  try {
+    const response = await axios.get(url);
+    const data = response.data;
+
+    if (
+      data.status === "OK" &&
+      data.rows.length &&
+      data.rows[0].elements.length &&
+      data.rows[0].elements[0].status === "OK"
+    ) {
+      const distanceKm = data.rows[0].elements[0].distance.value / 1000;
+      return distanceKm;
+    }
+
+    return 0;
+  } catch (error) {
+    console.error("Ошибка получения расстояния:", error.message);
+    return 0;
+  }
+}
+
 async function askDeepSeek(prompt) {
   try {
     const response = await axios.post(
       "https://api.deepseek.com/v1/chat/completions",
       {
-        model: "deepseek-chat", // или другой, если нужно
+        model: "deepseek-chat",
         messages: [{ role: "user", content: prompt }],
       },
       {
@@ -16,61 +47,100 @@ async function askDeepSeek(prompt) {
       }
     );
 
-    console.log(response.data.choices[0].message.content);
+    return response.data.choices[0].message.content;
   } catch (error) {
     console.error("Ошибка при обращении к DeepSeek API:", error.message);
+    return null;
   }
 }
 
-const prompt = `
-Ты — backend-ассистент. Я буду присылать тебе текстовые сообщения с объявлением. 
-Твоя задача: 
-1. Определи, относится ли сообщение к категории "CargoOrder" (груз) или "MachineOrder" (машина).
-2. Выдели все возможные поля из текста и заполни их в формате JSON согласно соответствующей схеме.
-3. Верни JSON, строго соответствующий одной из следующих схем:
+export async function getShippingCalculation(req, res) {
+  try {
+    const { cityA, cityB, carType } = req.query;
 
-CargoOrder:
+    if (!cityA || !cityB || !carType) {
+      return res
+        .status(400)
+        .json({ error: "Необходимы параметры: cityA, cityB и carType." });
+    }
+
+    const distance = await fetchDistance(cityA, cityB);
+    console.log(distance);
+
+    const prompt = `
+Ты — backend-ассистент для калькулятора доставки груза.
+Входные данные: город отправления (cityA), город назначения (cityB), тип машины (carType) и расстояние (в км). Используй следующие тарифы для расчёта стоимости доставки за км.
+
+Тарифы для тентованных машин:
+- Москва -> Россия: 90р за км
+- Россия -> Москва: 60р за км
+- Россия -> Другая страна: 150р за км
+- Санкт-Петербург -> Россия: 80р за км
+- Россия -> Санкт-Петербург: 60р за км
+- Россия (кроме МСК и СПБ) -> Россия (кроме МСК и СПБ): 60р за км
+
+Тарифы для рефрижераторных машин:
+- Москва -> Россия: 110р за км
+- Россия -> Москва: 80р за км
+- Россия -> Другая страна: 170р за км
+- Санкт-Петербург -> Россия: 100р за км
+- Россия -> Санкт-Петербург: 80р за км
+- Россия (кроме МСК и СПБ) -> Россия (кроме МСК и СПБ): 80р за км
+
+Дополнительно:
+Тентованная фура:
+- Другая страна -> Россия: 130р за км
+
+Фура с рефрижератором:
+- Другая страна -> Россия: 150р за км
+
+Если какой-либо параметр невозможно определить на основании входных данных, возвращай его как "".
+Если задано значение расстояния, выполни расчёт итоговой стоимости доставки как произведение расстояния на тариф.
+Формат выходных данных:
 {
-  orderType: "CargoOrder",
-  description: "...",
-  from: "...",
-  to: "...",
-  cargo: "...",
-  weight: "...",
-  volume: "...",
-  rate: "...",
-  ready: "...",
-  vehicle: "...",
-  paymentMethod: "Кэш" | "Карта"
+  "cityA": "",
+  "cityB": "",
+  "carType": "",
+  "tariff": "",
+  "price": ""
 }
 
-MachineOrder:
-{
-  orderType: "MachineOrder",
-  description: "...",
-  url: "...",
-  marka: "...",
-  tip: "...",
-  kuzov: "...",
-  tip_zagruzki: "...",
-  gruzopodyomnost: "...",
-  vmestimost: "...",
-  data_gotovnosti: "...",
-  otkuda: "...",
-  kuda: "...",
-  telefon: "...",
-  imya: "...",
-  firma: "...",
-  gorod: "...",
-  pochta: "...",
-  company: "...",
-  paymentMethod: "Кэш" | "Карта"
-}
+Возвращай только валидный JSON без каких-либо комментариев, пояснений и дополнительного текста.
 
-Если поле невозможно определить — верни его как "". 
-Не добавляй никаких комментариев, пояснений и текста вокруг — только валидный JSON.
+Входные данные:
+cityA: "${cityA}"
+cityB: "${cityB}"
+carType: "${carType}"
+distance: "${distance}"
 `;
 
-askDeepSeek(
-  prompt + "\n\nОбъявление: Груз 20т, Москва - Казань, тент, 50000 руб."
-);
+    const rawResponse = await askDeepSeek(prompt);
+    if (!rawResponse) {
+      return res
+        .status(500)
+        .json({ error: "Не удалось получить ответ от AI." });
+    }
+
+    // Удаление markdown-обёртки ``` и ```json
+    const cleanedResponse = rawResponse
+      .replace(/^\s*```(?:json)?/, "")
+      .replace(/```$/, "")
+      .trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedResponse);
+    } catch (err) {
+      console.error("Ошибка парсинга JSON:", err);
+      return res.status(500).json({ error: "Невалидный JSON от AI." });
+    }
+    console.log(parsed);
+
+    return res.json(parsed);
+  } catch (err) {
+    console.error("Ошибка в getShippingCalculation:", err);
+    return res
+      .status(500)
+      .json({ error: "Ошибка при расчёте стоимости доставки." });
+  }
+}
