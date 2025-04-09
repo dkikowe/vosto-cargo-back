@@ -13,6 +13,8 @@ import ParseController from "./controllers/ParseController.js";
 import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
 import { getShippingCalculation } from "./controllers/DeepSeek.js";
+import { sendSupportMessage } from "./controllers/Support.js";
+
 import "./jobs.js";
 
 const errorMsg = chalk.bgWhite.redBright;
@@ -81,6 +83,8 @@ app.post("/orders/restore", OrderController.restoreOrder);
 // ---------- Маршруты для парсинга ----------
 app.get("/parse-cargo", ParseController.parseAvtodispetcher);
 app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
+
+app.post("/support", sendSupportMessage);
 
 const port = process.env.PORT || 5050;
 

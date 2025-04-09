@@ -18,7 +18,7 @@ class ParseController {
     });
     await page.type("input[name='password']", "8AKuOdsWj", { delay: 100 });
     await page.click("input[type='submit']");
-    await page.goto("https://avtodispetcher.ru/", {
+    await page.goto("https://www.avtodispetcher.ru/", {
       waitUntil: "domcontentloaded",
       timeout: 120000,
     });
@@ -52,8 +52,8 @@ class ParseController {
       while (true) {
         const url =
           currentPage === 1
-            ? "https://avtodispetcher.ru/consignor/"
-            : `https://avtodispetcher.ru/consignor/page-${currentPage}`;
+            ? "https://www.avtodispetcher.ru/consignor/"
+            : `https://www.avtodispetcher.ru/consignor/page-${currentPage}`;
         console.log(`Парсинг грузов, страница ${currentPage}: ${url}`);
 
         await page.goto(url, {
