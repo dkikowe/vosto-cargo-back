@@ -127,7 +127,9 @@ class ParseController {
               });
               await new Promise((resolve) => setTimeout(resolve, 1500));
 
-              const phoneImg = await detailPage.$(".phoneImg");
+              const phoneImg = await detailPage.waitForSelector(".phoneImg", {
+                timeout: 15000,
+              });
               if (phoneImg) {
                 const box = await phoneImg.boundingBox();
                 if (box && box.width > 20) {
