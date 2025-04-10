@@ -22,14 +22,14 @@ const userSchema = new mongoose.Schema(
     telegramId: { type: String, unique: true, required: true },
     avatar: { type: String, default: "" },
     rating: { type: Number, default: 5.0 },
-    fromUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 
-    // Новый блок
+    // 💡 fromUser — внутри истории рейтингов
     ratingHistory: [
       {
         value: { type: Number, required: true },
         reason: { type: String, default: "" },
         createdAt: { type: Date, default: Date.now },
+        fromUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
       },
     ],
 
