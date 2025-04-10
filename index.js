@@ -14,6 +14,7 @@ import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
 import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import { sendSupportMessage } from "./controllers/Support.js";
+import ratingRouter from "./controllers/RatingController.js";
 
 import "./jobs.js";
 
@@ -67,6 +68,8 @@ app.get("/getCompany/:id", UserController.getCompany);
 app.post("/saveTheme", UserController.saveTheme);
 
 app.get("/api/distance", getDistance);
+
+app.use("/api/rating", ratingRouter);
 
 // ---------- Маршруты для заказов ----------
 app.post("/orders", OrderController.createOrder);

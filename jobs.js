@@ -47,4 +47,3 @@ async function runParsingJob() {
 cron.schedule("0 * * * *", runParsingJob);
 
 // Выполнить один раз сразу при старте
-runParsingJob();

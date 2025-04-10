@@ -280,6 +280,10 @@ export async function startTelegramListener() {
             ready: dataTelega.ready,
           });
           console.log("Сохранение данных:", dataTelega);
+          if (!dataTelega.telefon || dataTelega.telefon.trim() === "") {
+            console.log("Пропущено: отсутствует телефон, заказ не сохранён.");
+            continue;
+          }
           if (dataTelega.orderType === "CargoOrder" && !existing) {
             await CargoOrder.create(dataTelega);
           } else if (dataTelega.orderType === "MachineOrder" && !existing) {
