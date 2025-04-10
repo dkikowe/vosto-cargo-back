@@ -36,18 +36,39 @@ router.get("/contact/:userId", async (req, res) => {
  */
 router.post("/rate/:userId", async (req, res) => {
   try {
-    const { rating, reason } = req.body;
+    const { rating, reason, fromUserId } = req.body;
     const { userId } = req.params;
 
     if (typeof rating !== "number" || rating < 0 || rating > 5) {
       return res.status(400).json({ message: "Некорректный рейтинг" });
     }
 
+    if (!fromUserId) {
+      return res.status(400).json({ message: "Не указан ID отправителя" });
+    }
+
     const user = await User.findById(userId);
     if (!user)
       return res.status(404).json({ message: "Пользователь не найден" });
 
-    user.ratingHistory.push({ value: rating, reason });
+    // Проверим, ставил ли уже этот пользователь рейтинг
+    const alreadyRated = user.ratingHistory.find(
+      (r) => r.fromUser?.toString() === fromUserId
+    );
+
+    if (alreadyRated) {
+      return res
+        .status(400)
+        .json({ message: "Вы уже ставили рейтинг этому пользователю" });
+    }
+
+    // Добавляем новый рейтинг
+    user.ratingHistory.push({
+      value: rating,
+      reason,
+      fromUser: fromUserId,
+      createdAt: new Date(),
+    });
 
     // Пересчитать средний рейтинг
     const total = user.ratingHistory.reduce((acc, r) => acc + r.value, 0);

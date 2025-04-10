@@ -22,6 +22,7 @@ const userSchema = new mongoose.Schema(
     telegramId: { type: String, unique: true, required: true },
     avatar: { type: String, default: "" },
     rating: { type: Number, default: 5.0 },
+    fromUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 
     // Новый блок
     ratingHistory: [
