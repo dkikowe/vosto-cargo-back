@@ -389,3 +389,26 @@ export const saveTheme = async (req, res) => {
     res.status(500).json({ message: "Ошибка сервера при сохранении темы" });
   }
 };
+
+export const saveLanguage = async (req, res) => {
+  const { userId, language } = req.body;
+
+  if (!userId || !language) {
+    return res.status(400).json({ message: "userId и language обязательны" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+
+    user.language = language;
+    await user.save();
+
+    res.json({ message: "Язык успешно сохранён", user });
+  } catch (error) {
+    console.error("Ошибка при сохранении языка:", error);
+    res.status(500).json({ message: "Ошибка сервера при сохранении языка" });
+  }
+};

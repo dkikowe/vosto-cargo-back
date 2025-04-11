@@ -66,6 +66,7 @@ app.get("/getCompany/:id", UserController.getCompany);
 
 // Маршрут для сохранения темы
 app.post("/saveTheme", UserController.saveTheme);
+app.post("/saveLang", UserController.saveLanguage);
 
 app.get("/api/distance", getDistance);
 
