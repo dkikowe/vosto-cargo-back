@@ -15,6 +15,7 @@ import { getDistance } from "./controllers/RouteController.js";
 import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import { sendSupportMessage } from "./controllers/Support.js";
 import ratingRouter from "./controllers/RatingController.js";
+import { startBot } from "./controllers/BotTelega.js";
 
 import "./jobs.js";
 
@@ -92,6 +93,14 @@ app.post("/support", sendSupportMessage);
 
 const port = process.env.PORT || 5050;
 
-app.listen(port, () => {
+app.listen(port, async () => {
   console.log(successMsg("listening port:", port));
+
+  // Стартуем Telegram-бота
+  try {
+    await startBot();
+    console.log(successMsg("Telegram-бот успешно запущен"));
+  } catch (err) {
+    console.error(errorMsg("Ошибка при запуске Telegram-бота:"), err);
+  }
 });

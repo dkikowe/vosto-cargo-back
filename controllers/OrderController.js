@@ -19,15 +19,16 @@ export const createOrder = async (req, res) => {
       newOrder = new CargoOrder({
         description,
         createdBy: userId,
-        from: rest.loadingPlace || "", // Место загрузки
-        to: rest.unloadingPlace || "", // Место выгрузки
-        cargo: rest.cargoName || "", // Наименование груза
+        from: rest.from || "", // Место загрузки
+        to: rest.to || "", // Место выгрузки
+        cargo: rest.cargo || "", // Наименование груза
         weight: rest.weight ? rest.weight.toString() : "",
         volume: rest.volume ? rest.volume.toString() : "",
         rate: rest.rate || "",
         ready: rest.ready || "",
         vehicle: rest.vehicle || "",
         paymentMethod: rest.paymentMethod || "",
+        telefon: rest.telefon || "",
       });
     } else if (orderType === "MachineOrder") {
       // Для машины схема требует: marka, tip, kuzov, tip_zagruzki, gruzopodyomnost, vmestimost,
