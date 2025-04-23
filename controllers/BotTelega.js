@@ -12,6 +12,8 @@ const bot = new Telegraf(token);
 const cargoSubscribers = new Set();
 const vehicleSubscribers = new Set();
 
+const webAppUrl = "https://vosto-cargo-front.vercel.app";
+
 const mainMenuKeyboard = {
   keyboard: [
     ["Грузы", "Машины"],
@@ -24,10 +26,9 @@ const mainMenuKeyboard = {
 };
 
 bot.start(async (ctx) => {
-  await ctx.reply(
-    "Добро пожаловать! Я чат-бот, который поможет тебе получать заказы на спецтехнику в режиме реального времени. Просто выбери нужную категорию в меню, чтобы начать получать заявки. Будем рады помочь!",
-    { reply_markup: mainMenuKeyboard }
-  );
+  await ctx.reply("Добро пожаловать! VOSTOCARGO", {
+    reply_markup: mainMenuKeyboard,
+  });
 });
 
 bot.hears("Назад", async (ctx) => {
@@ -46,8 +47,6 @@ bot.hears("Машины", async (ctx) => {
   await ctx.reply("✅ Вы подписались на заявки по машинам.");
 });
 
-const webAppUrl = "https://vosto-cargo-front.vercel.app";
-
 const webAppReply = {
   keyboard: [
     [
@@ -65,7 +64,7 @@ const webAppReply = {
 
 bot.hears("Калькулятор", async (ctx) => {
   await ctx.reply("Калькулятор доступен в приложении", {
-    reply_markup: webAppReply,
+    reply_markup: createWebAppKeyboard("/menu"),
   });
 });
 
@@ -77,22 +76,36 @@ bot.hears("Отследить перевозку", async (ctx) => {
 
 bot.hears("Перейти в приложение", async (ctx) => {
   await ctx.reply("Откройте приложение", {
-    reply_markup: webAppReply,
+    reply_markup: createWebAppKeyboard("/home"),
   });
 });
 
 bot.hears("Написать в поддержку", async (ctx) => {
-  await ctx.reply("Свяжитесь с поддержкой через приложение ", {
-    reply_markup: webAppReply,
+  await ctx.reply("Переходите в раздел поддержки:", {
+    reply_markup: createWebAppKeyboard("/support"),
   });
 });
+
+function createWebAppKeyboard(hashPath) {
+  return {
+    keyboard: [
+      [
+        {
+          text: "Открыть в приложении",
+          web_app: { url: `${webAppUrl}/#${hashPath}` },
+        },
+      ],
+      ["Назад"],
+    ],
+    resize_keyboard: true,
+  };
+}
 
 function formatCargoText(order, nickname) {
   const num = order.orderNumber;
   const date = new Date(order.createdAt).toLocaleDateString("ru-RU");
   const time = new Date(order.createdAt).toLocaleTimeString("ru-RU");
   const route = `${order.from || "?"} – ${order.to || "?"}`;
-
   return `
 📦 *Новый груз №${num}*
 Дата: ${date}   Время: ${time}
@@ -113,7 +126,6 @@ function formatMachineText(order, nickname) {
   const date = new Date(order.createdAt).toLocaleDateString("ru-RU");
   const time = new Date(order.createdAt).toLocaleTimeString("ru-RU");
   const route = `${order.otkuda || "?"} – ${order.kuda || "?"}`;
-
   return `
 🚛 *Новая машина №${num}*
 Дата: ${date}   Время: ${time}
@@ -134,14 +146,37 @@ function formatMachineText(order, nickname) {
 
 function buildKeyboard(orderId, routeLabel, contactLabel) {
   const deepRoute = `https://t.me/${botUsername}?startapp=route_${orderId}`;
-  const deepContact = `https://t.me/${botUsername}?startapp=contact_${orderId}`;
   return {
     inline_keyboard: [
       [{ text: "📍 Посмотреть маршрут", url: deepRoute }],
-      [{ text: contactLabel, url: deepContact }],
+      [{ text: contactLabel, callback_data: `contact_${orderId}` }],
     ],
   };
 }
+
+bot.on("callback_query", async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  if (data?.startsWith("contact_")) {
+    await ctx.answerCbQuery();
+    await ctx.reply(
+      "Контакты доступны только при наличии подписки.\nПожалуйста, перейдите в приложение и оформите подписку.",
+      {
+        reply_markup: {
+          keyboard: [
+            [
+              {
+                text: "Оформить подписку",
+                web_app: { url: `${webAppUrl}/#prem` },
+              },
+            ],
+            ["Назад"],
+          ],
+          resize_keyboard: true,
+        },
+      }
+    );
+  }
+});
 
 bot.command("newCargo", async (ctx) => {
   try {

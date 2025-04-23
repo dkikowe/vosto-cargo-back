@@ -97,10 +97,10 @@ app.listen(port, async () => {
   console.log(successMsg("listening port:", port));
 
   // Стартуем Telegram-бота
-  // try {
-  //   await startBot();
-  //   console.log(successMsg("Telegram-бот успешно запущен"));
-  // } catch (err) {
-  //   console.error(errorMsg("Ошибка при запуске Telegram-бота:"), err);
-  // }
+  try {
+    await startBot();
+    console.log(successMsg("Telegram-бот успешно запущен"));
+  } catch (err) {
+    console.error(errorMsg("Ошибка при запуске Telegram-бота:"), err);
+  }
 });
