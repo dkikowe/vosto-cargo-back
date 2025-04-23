@@ -77,7 +77,7 @@ bot.hears("Калькулятор", async (ctx) => {
 
 bot.hears("Отследить перевозку", async (ctx) => {
   await ctx.reply("Трекинг доступен в приложении", {
-    reply_markup: webAppReply,
+    reply_markup: createWebAppKeyboard("/home"),
   });
 });
 
