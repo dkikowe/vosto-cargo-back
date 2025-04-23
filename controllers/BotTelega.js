@@ -14,6 +14,13 @@ const vehicleSubscribers = new Set();
 
 const webAppUrl = "https://vosto-cargo-front.vercel.app";
 
+function generateRouteUrl(cityA, cityB) {
+  if (!cityA || !cityB) return null;
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+    cityA
+  )}&destination=${encodeURIComponent(cityB)}`;
+}
+
 const mainMenuKeyboard = {
   keyboard: [
     ["Грузы", "Машины"],
@@ -144,12 +151,15 @@ function formatMachineText(order, nickname) {
 `.trim();
 }
 
-function buildKeyboard(orderId, routeLabel, contactLabel) {
-  const deepRoute = `https://t.me/${botUsername}?startapp=route_${orderId}`;
+function buildKeyboard(order, routeLabel, contactLabel) {
+  const from = order.from || order.otkuda;
+  const to = order.to || order.kuda;
+  const routeUrl = generateRouteUrl(from, to) || "https://google.com";
+
   return {
     inline_keyboard: [
-      [{ text: "📍 Посмотреть маршрут", url: deepRoute }],
-      [{ text: contactLabel, callback_data: `contact_${orderId}` }],
+      [{ text: "📍 Посмотреть маршрут", url: routeUrl }],
+      [{ text: contactLabel, callback_data: `contact_${order._id}` }],
     ],
   };
 }
@@ -186,7 +196,7 @@ bot.command("newCargo", async (ctx) => {
     const nickname = user?.name || user?.username || "неизвестно";
     const text = formatCargoText(latest, nickname);
     const kb = buildKeyboard(
-      latest._id,
+      latest,
       "Посмотреть маршрут",
       "Связаться с заказчиком"
     );
@@ -213,7 +223,7 @@ bot.command("newMachine", async (ctx) => {
     const nickname = user?.name || user?.username || "неизвестно";
     const text = formatMachineText(latest, nickname);
     const kb = buildKeyboard(
-      latest._id,
+      latest,
       "Посмотреть маршрут",
       "Связаться с перевозчиком"
     );
@@ -243,20 +253,12 @@ mongoose.connection.once("open", () => {
 
     if (doc.orderType === "CargoOrder") {
       text = formatCargoText(doc, nickname);
-      kb = buildKeyboard(
-        doc._id,
-        "Посмотреть маршрут",
-        "Связаться с заказчиком"
-      );
+      kb = buildKeyboard(doc, "Посмотреть маршрут", "Связаться с заказчиком");
       subs = cargoSubscribers;
     }
     if (doc.orderType === "MachineOrder") {
       text = formatMachineText(doc, nickname);
-      kb = buildKeyboard(
-        doc._id,
-        "Посмотреть маршрут",
-        "Связаться с перевозчиком"
-      );
+      kb = buildKeyboard(doc, "Посмотреть маршрут", "Связаться с перевозчиком");
       subs = vehicleSubscribers;
     }
 
