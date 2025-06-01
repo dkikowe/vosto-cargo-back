@@ -3,31 +3,72 @@ import Tesseract from "tesseract.js";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
+import { executablePath } from "puppeteer";
 
 class ParseController {
   async loginAvtodispetcher(page) {
     console.log("Логин на Avtodispetcher...");
-    await page.goto("https://www.avtodispetcher.ru/login.html", {
-      waitUntil: "networkidle2",
-      timeout: 120000,
-    });
-    await page.waitForSelector("input[name='email']", { timeout: 10000 });
-    await page.waitForSelector("input[name='password']", { timeout: 10000 });
-    await page.type("input[name='email']", "didokio123@yandex.ru", {
-      delay: 100,
-    });
-    await page.type("input[name='password']", "8AKuOdsWj", { delay: 100 });
-    await page.click("input[type='submit']");
-    await page.goto("https://www.avtodispetcher.ru/", {
-      waitUntil: "domcontentloaded",
-      timeout: 120000,
-    });
-    console.log("Логин выполнен.");
+    try {
+      await page.goto("https://www.avtodispetcher.ru/login.html", {
+        waitUntil: "networkidle2",
+        timeout: 120000,
+      });
+
+      // Проверяем, не находимся ли мы уже на главной странице
+      const currentUrl = page.url();
+      if (
+        currentUrl.includes("avtodispetcher.ru/") &&
+        !currentUrl.includes("login.html")
+      ) {
+        console.log("Уже авторизованы");
+        return;
+      }
+
+      await page.waitForSelector("input[name='email']", { timeout: 10000 });
+      await page.waitForSelector("input[name='password']", { timeout: 10000 });
+
+      // Очищаем поля перед вводом
+      await page.evaluate(() => {
+        document.querySelector("input[name='email']").value = "";
+        document.querySelector("input[name='password']").value = "";
+      });
+
+      await page.type("input[name='email']", "didokio123@yandex.ru", {
+        delay: 100,
+      });
+      await page.type("input[name='password']", "8AKuOdsWj", { delay: 100 });
+
+      // Добавляем задержку перед кликом
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      await page.click("input[type='submit']");
+
+      // Ждем завершения навигации
+      await page.waitForNavigation({
+        waitUntil: "networkidle2",
+        timeout: 120000,
+      });
+
+      // Проверяем успешность авторизации
+      const isLoggedIn = await page.evaluate(() => {
+        return !document.querySelector("input[name='email']");
+      });
+
+      if (!isLoggedIn) {
+        throw new Error("Не удалось авторизоваться");
+      }
+
+      console.log("Логин выполнен успешно.");
+    } catch (error) {
+      console.error("Ошибка при авторизации:", error);
+      throw error;
+    }
   }
 
   async parseAvtodispetcher(req, res) {
+    let browser;
     try {
-      const browser = await puppeteer.launch({
+      browser = await puppeteer.launch({
         headless: true,
         executablePath: executablePath(),
         args: [
@@ -42,6 +83,16 @@ class ParseController {
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
+
+      // Добавляем обработку ошибок сети
+      page.on("error", (err) => {
+        console.error("Ошибка страницы:", err);
+      });
+
+      page.on("pageerror", (err) => {
+        console.error("Ошибка JavaScript на странице:", err);
+      });
+
       await this.loginAvtodispetcher(page);
       const sessionCookies = await page.cookies();
 
@@ -49,144 +100,193 @@ class ParseController {
       let currentPage = 1;
       const cargoList = [];
       let orderNumber = 1;
+      let retryCount = 0;
+      const maxRetries = 3;
 
       while (true) {
-        const url =
-          currentPage === 1
-            ? "https://www.avtodispetcher.ru/consignor/"
-            : `https://www.avtodispetcher.ru/consignor/page-${currentPage}`;
-        console.log(`Парсинг грузов, страница ${currentPage}: ${url}`);
+        try {
+          const url =
+            currentPage === 1
+              ? "https://www.avtodispetcher.ru/consignor/"
+              : `https://www.avtodispetcher.ru/consignor/page-${currentPage}`;
+          console.log(`Парсинг грузов, страница ${currentPage}: ${url}`);
 
-        await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout: 120000,
-        });
-        const tableHandle = await page.$("table");
-        if (!tableHandle) {
-          console.log(
-            `Нет таблицы на странице ${currentPage}, завершаем парсинг грузов.`
-          );
-          break;
-        }
-        const rows = await page.$$("table tr");
-        console.log(`Страница ${currentPage}: найдено строк ${rows.length}`);
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          const cells = await row.$$("td");
-          if (cells.length < 6) continue;
+          await page.goto(url, {
+            waitUntil: "networkidle2",
+            timeout: 120000,
+          });
 
-          const from = (
-            await (await cells[0].getProperty("innerText")).jsonValue()
-          ).trim();
-          let toRaw = (
-            await (await cells[1].getProperty("innerText")).jsonValue()
-          ).trim();
-          let to = toRaw.replace(/\s*\d+\s*км$/, "").trim();
-          const cargoText = (
-            await (await cells[2].getProperty("innerText")).jsonValue()
-          ).trim();
-          const rate = (
-            await (await cells[3].getProperty("innerText")).jsonValue()
-          )
-            .replace(/\s+/g, " ")
-            .trim();
-          const ready = (
-            await (await cells[4].getProperty("innerText")).jsonValue()
-          )
-            .replace(/\s+/g, " ")
-            .trim();
-          const vehicle = (
-            await (await cells[5].getProperty("innerText")).jsonValue()
-          )
-            .replace(/подробнее/gi, "")
-            .replace(/\s+/g, " ")
-            .trim();
-
-          const weightMatch = cargoText.match(/([\d.,]+)\s*(т|тонн)/i);
-          const volumeMatch = cargoText.match(/([\d.,]+)\s*(м3|м³)/i);
-          const weight = weightMatch
-            ? weightMatch[1].replace(",", ".") + " т"
-            : "";
-          const volume = volumeMatch
-            ? volumeMatch[1].replace(",", ".") + " м³"
-            : "";
-
-          let detailLink = null;
-          const anchor = await row.$("a");
-          if (anchor) {
-            detailLink = await (await anchor.getProperty("href")).jsonValue();
+          // Проверяем наличие капчи
+          const captchaElement = await page.$(".g-recaptcha");
+          if (captchaElement) {
+            console.log("Обнаружена капча, пробуем переавторизоваться...");
+            await this.loginAvtodispetcher(page);
+            retryCount++;
+            if (retryCount >= maxRetries) {
+              throw new Error("Превышено количество попыток из-за капчи");
+            }
+            continue;
           }
 
-          let telefon = "";
-          if (detailLink) {
-            const detailPage = await browser.newPage();
-            await detailPage.setCookie(...sessionCookies);
-            try {
-              await detailPage.goto(detailLink, {
-                waitUntil: "domcontentloaded",
-                timeout: 120000,
-              });
-              await new Promise((resolve) => setTimeout(resolve, 1500));
+          const tableHandle = await page.$("table");
+          if (!tableHandle) {
+            console.log(
+              `Нет таблицы на странице ${currentPage}, завершаем парсинг грузов.`
+            );
+            break;
+          }
 
-              const phoneImg = await detailPage.waitForSelector(".phoneImg", {
-                timeout: 60000,
-              });
-              if (phoneImg) {
-                const box = await phoneImg.boundingBox();
-                if (box && box.width > 20) {
-                  const tempFile = path.resolve(`phone-${uuidv4()}.png`);
-                  try {
-                    await phoneImg.screenshot({ path: tempFile });
-                    const {
-                      data: { text },
-                    } = await Tesseract.recognize(tempFile, "eng", {
-                      tessedit_char_whitelist: "0123456789+() ",
-                    });
-                    telefon = text.trim();
-                    fs.unlinkSync(tempFile);
-                  } catch (screenshotError) {
-                    console.log("Ошибка OCR:", screenshotError.message);
+          // Проверяем, что мы действительно авторизованы
+          const loginForm = await page.$('input[name="email"]');
+          if (loginForm) {
+            console.log("Потеряна авторизация, пробуем переавторизоваться...");
+            await this.loginAvtodispetcher(page);
+            retryCount++;
+            if (retryCount >= maxRetries) {
+              throw new Error("Превышено количество попыток переавторизации");
+            }
+            continue;
+          }
+
+          const rows = await page.$$("table tr");
+          console.log(`Страница ${currentPage}: найдено строк ${rows.length}`);
+
+          if (rows.length <= 1) {
+            console.log("Таблица пуста или содержит только заголовок");
+            break;
+          }
+
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const cells = await row.$$("td");
+            if (cells.length < 6) continue;
+
+            const from = (
+              await (await cells[0].getProperty("innerText")).jsonValue()
+            ).trim();
+            let toRaw = (
+              await (await cells[1].getProperty("innerText")).jsonValue()
+            ).trim();
+            let to = toRaw.replace(/\s*\d+\s*км$/, "").trim();
+            const cargoText = (
+              await (await cells[2].getProperty("innerText")).jsonValue()
+            ).trim();
+            const rate = (
+              await (await cells[3].getProperty("innerText")).jsonValue()
+            )
+              .replace(/\s+/g, " ")
+              .trim();
+            const ready = (
+              await (await cells[4].getProperty("innerText")).jsonValue()
+            )
+              .replace(/\s+/g, " ")
+              .trim();
+            const vehicle = (
+              await (await cells[5].getProperty("innerText")).jsonValue()
+            )
+              .replace(/подробнее/gi, "")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            const weightMatch = cargoText.match(/([\d.,]+)\s*(т|тонн)/i);
+            const volumeMatch = cargoText.match(/([\d.,]+)\s*(м3|м³)/i);
+            const weight = weightMatch
+              ? weightMatch[1].replace(",", ".") + " т"
+              : "";
+            const volume = volumeMatch
+              ? volumeMatch[1].replace(",", ".") + " м³"
+              : "";
+
+            let detailLink = null;
+            const anchor = await row.$("a");
+            if (anchor) {
+              detailLink = await (await anchor.getProperty("href")).jsonValue();
+            }
+
+            let telefon = "";
+            if (detailLink) {
+              const detailPage = await browser.newPage();
+              await detailPage.setCookie(...sessionCookies);
+              try {
+                await detailPage.goto(detailLink, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 120000,
+                });
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+
+                const phoneImg = await detailPage.waitForSelector(".phoneImg", {
+                  timeout: 60000,
+                });
+                if (phoneImg) {
+                  const box = await phoneImg.boundingBox();
+                  if (box && box.width > 20) {
+                    const tempFile = path.resolve(`phone-${uuidv4()}.png`);
+                    try {
+                      await phoneImg.screenshot({ path: tempFile });
+                      const {
+                        data: { text },
+                      } = await Tesseract.recognize(tempFile, "eng", {
+                        tessedit_char_whitelist: "0123456789+() ",
+                      });
+                      telefon = text.trim();
+                      fs.unlinkSync(tempFile);
+                    } catch (screenshotError) {
+                      console.log("Ошибка OCR:", screenshotError.message);
+                    }
+                  } else {
+                    console.log(
+                      "Телефонное изображение не загрузилось или пустое."
+                    );
+                  }
+                }
+
+                if (telefon) {
+                  telefon = telefon.replace(/\D/g, "");
+                  if (telefon[0] !== "7") {
+                    telefon = "7" + telefon.slice(1);
                   }
                 } else {
                   console.log(
-                    "Телефонное изображение не загрузилось или пустое."
+                    `Номер не найден для груза по ссылке: ${detailLink}`
                   );
                 }
-              }
-
-              if (telefon) {
-                telefon = telefon.replace(/\D/g, "");
-                if (telefon[0] !== "7") {
-                  telefon = "7" + telefon.slice(1);
-                }
-              } else {
+              } catch (detailError) {
                 console.log(
-                  `Номер не найден для груза по ссылке: ${detailLink}`
+                  "Ошибка при парсинге детальной страницы:",
+                  detailError
                 );
+              } finally {
+                await detailPage.close();
               }
-            } catch (detailError) {
-              console.log(
-                "Ошибка при парсинге детальной страницы:",
-                detailError
-              );
-            } finally {
-              await detailPage.close();
             }
-          }
 
-          cargoList.push({
-            from,
-            to,
-            cargo: cargoText,
-            weight,
-            volume,
-            rate,
-            ready,
-            vehicle,
-            telefon,
-          });
-          orderNumber++;
+            cargoList.push({
+              from,
+              to,
+              cargo: cargoText,
+              weight,
+              volume,
+              rate,
+              ready,
+              vehicle,
+              telefon,
+            });
+            orderNumber++;
+          }
+        } catch (pageError) {
+          console.error(
+            `Ошибка при парсинге страницы ${currentPage}:`,
+            pageError
+          );
+          retryCount++;
+          if (retryCount >= maxRetries) {
+            throw new Error(
+              `Не удалось обработать страницу ${currentPage} после ${maxRetries} попыток`
+            );
+          }
+          continue;
         }
+
         currentPage++;
         if (currentPage > maxPages) {
           console.log(
@@ -204,6 +304,9 @@ class ParseController {
       });
     } catch (error) {
       console.error("Ошибка при парсинге грузов:", error);
+      if (browser) {
+        await browser.close();
+      }
       return res.status(500).json({
         success: false,
         error: "Ошибка при парсинге грузов",
@@ -216,6 +319,7 @@ class ParseController {
     try {
       const browser = await puppeteer.launch({
         headless: true,
+        executablePath: executablePath(),
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
@@ -228,6 +332,9 @@ class ParseController {
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
+
+      await this.loginAvtodispetcher(page);
+      const sessionCookies = await page.cookies();
 
       const detailLinksSet = new Set();
       let currentPage = 1;
