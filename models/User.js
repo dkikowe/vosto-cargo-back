@@ -13,6 +13,7 @@ const companySchema = new mongoose.Schema({
   phone: { type: String, default: "" },
   jobTitle: { type: String, default: "" },
   department: { type: String, default: "" },
+  photo: { type: String, default: "" },
 });
 
 const userSchema = new mongoose.Schema(

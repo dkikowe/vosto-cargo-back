@@ -352,8 +352,36 @@ export const getCompany = async (req, res) => {
       return res.status(404).json({ message: "Пользователь не найден" });
     }
 
-    // Возвращаем пользователя как есть, без генерации ссылки для аватара
-    res.json(user);
+    // Если у компании есть фото и оно не из Telegram
+    if (
+      user.company.photo &&
+      user.company.photo.slice(0, 12) !== "https://t.me"
+    ) {
+      // Генерируем временную ссылку для доступа к фото компании
+      const getObjectParams = {
+        Bucket: bucketName,
+        Key: user.company.photo,
+      };
+
+      const command = new GetObjectCommand(getObjectParams);
+      const companyPhotoUrl = await getSignedUrl(s3, command, {
+        expiresIn: 3600,
+      }); // Срок действия ссылки — 1 час
+
+      // Включаем ссылку на фото компании в ответ
+      const userWithCompanyPhoto = {
+        ...user._doc,
+        company: {
+          ...user.company._doc,
+          photo: companyPhotoUrl,
+        },
+      };
+
+      res.json(userWithCompanyPhoto);
+    } else {
+      // Если фото отсутствует, возвращаем пользователя без изменений
+      res.json(user);
+    }
   } catch (error) {
     console.error("Ошибка при получении пользователя:", error);
     return res
@@ -410,5 +438,43 @@ export const saveLanguage = async (req, res) => {
   } catch (error) {
     console.error("Ошибка при сохранении языка:", error);
     res.status(500).json({ message: "Ошибка сервера при сохранении языка" });
+  }
+};
+
+export const uploadCompanyPhoto = async (req, res) => {
+  const userId = req.params.id;
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({ error: "Некорректные параметры" });
+  }
+
+  try {
+    const user = await User.findOne({ _id: userId });
+    if (!user) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+
+    // Upload file to S3
+    const buffer = await sharp(req.file.buffer).toBuffer();
+    const imageName = `company_${userId}_${Date.now()}`;
+
+    const params = {
+      Bucket: bucketName,
+      Key: imageName,
+      Body: buffer,
+      ContentType: req.file.mimetype,
+    };
+
+    const command = new PutObjectCommand(params);
+    await s3.send(command);
+
+    // Update the company's photo field
+    user.company.photo = imageName;
+    await user.save();
+
+    res.json({ message: "Фото компании успешно загружено", user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Ошибка при загрузке фото компании" });
   }
 };

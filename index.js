@@ -55,6 +55,11 @@ app.post(
   upload.single("photo"),
   UserController.uploadPhoto
 );
+app.post(
+  "/uploadCompanyPhoto/:id",
+  upload.single("photo"),
+  UserController.uploadCompanyPhoto
+);
 app.post("/setRole", UserController.setRole);
 app.post("/saveName", UserController.changeUserName);
 app.get("/getUsers", UserController.getUsers);
