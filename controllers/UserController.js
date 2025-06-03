@@ -346,47 +346,30 @@ export const updateCompany = async (req, res) => {
 
 export const getCompany = async (req, res) => {
   try {
-    const user = await User.findOne({ _id: req.params.id });
+    const user = await User.findById(req.params.id);
 
     if (!user) {
       return res.status(404).json({ message: "Пользователь не найден" });
     }
 
-    // Если у компании есть фото и оно не из Telegram
-    if (
-      user.company.photo &&
-      user.company.photo.slice(0, 12) !== "https://t.me"
-    ) {
-      // Генерируем временную ссылку для доступа к фото компании
+    const company = user.company?.toObject?.() || user.company || {};
+
+    if (company.photo && !company.photo.startsWith("http")) {
       const getObjectParams = {
         Bucket: bucketName,
-        Key: user.company.photo,
+        Key: company.photo,
       };
 
       const command = new GetObjectCommand(getObjectParams);
-      const companyPhotoUrl = await getSignedUrl(s3, command, {
-        expiresIn: 3600,
-      }); // Срок действия ссылки — 1 час
+      const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
 
-      // Включаем ссылку на фото компании в ответ
-      const userWithCompanyPhoto = {
-        ...user._doc,
-        company: {
-          ...user.company._doc,
-          photo: companyPhotoUrl,
-        },
-      };
-
-      res.json(userWithCompanyPhoto);
-    } else {
-      // Если фото отсутствует, возвращаем пользователя без изменений
-      res.json(user);
+      company.photo = signedUrl;
     }
+
+    res.json({ company });
   } catch (error) {
-    console.error("Ошибка при получении пользователя:", error);
-    return res
-      .status(500)
-      .json({ message: "Не удалось получить данные пользователя" });
+    console.error("Ошибка при получении компании:", error);
+    res.status(500).json({ message: "Не удалось получить данные компании" });
   }
 };
 
@@ -449,12 +432,11 @@ export const uploadCompanyPhoto = async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ _id: userId });
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ error: "Пользователь не найден" });
     }
 
-    // Upload file to S3
     const buffer = await sharp(req.file.buffer).toBuffer();
     const imageName = `company_${userId}_${Date.now()}`;
 
@@ -468,7 +450,7 @@ export const uploadCompanyPhoto = async (req, res) => {
     const command = new PutObjectCommand(params);
     await s3.send(command);
 
-    // Update the company's photo field
+    if (!user.company) user.company = {};
     user.company.photo = imageName;
     await user.save();
 
