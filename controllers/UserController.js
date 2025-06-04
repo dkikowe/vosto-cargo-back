@@ -460,3 +460,34 @@ export const uploadCompanyPhoto = async (req, res) => {
     res.status(500).json({ error: "Ошибка при загрузке фото компании" });
   }
 };
+
+export const saveLocation = async (req, res) => {
+  const { userId, location } = req.body;
+
+  if (!userId || !location || !location.latitude || !location.longitude) {
+    return res.status(400).json({ message: "userId и координаты обязательны" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user)
+      return res.status(404).json({ message: "Пользователь не найден" });
+
+    user.location = {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      updatedAt: new Date(),
+    };
+
+    await user.save();
+    res.json({
+      message: "Координаты успешно сохранены",
+      location: user.location,
+    });
+  } catch (error) {
+    console.error("Ошибка при сохранении координат:", error);
+    res
+      .status(500)
+      .json({ message: "Ошибка сервера при сохранении координат" });
+  }
+};

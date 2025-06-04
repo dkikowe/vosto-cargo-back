@@ -14,6 +14,8 @@ import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
 import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import { sendSupportMessage } from "./controllers/Support.js";
+import { saveLocation } from "./controllers/UserController.js";
+
 import ratingRouter from "./controllers/RatingController.js";
 import { startBot } from "./controllers/BotTelega.js";
 
@@ -49,6 +51,8 @@ app.post("/register", UserController.register);
 app.post("/login", UserController.login);
 app.post("/subscribe", UserController.getSubscribe);
 app.post("/getTelegramId", UserController.getTelegramId);
+app.post("/save-location", UserController.saveLocation);
+
 app.get("/getUserById/:id", UserController.getUser);
 app.post(
   "/uploadPhoto/:id",

@@ -24,6 +24,11 @@ const userSchema = new mongoose.Schema(
     avatar: { type: String, default: "" },
     rating: { type: Number, default: 5.0 },
     language: { type: String, default: "ru" },
+    location: {
+      latitude: Number,
+      longitude: Number,
+      updatedAt: Date,
+    },
 
     // 💡 fromUser — внутри истории рейтингов
     ratingHistory: [
