@@ -9,9 +9,11 @@ class ParseController {
   async loginAvtodispetcher(page) {
     console.log("Логин на Avtodispetcher...");
     try {
+      // Проверяем доступность сайта
+      console.log("Проверяем доступность сайта...");
       await page.goto("https://www.avtodispetcher.ru/login.html", {
-        waitUntil: "networkidle2",
-        timeout: 120000,
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
       });
 
       // Проверяем, не находимся ли мы уже на главной странице
@@ -45,8 +47,8 @@ class ParseController {
 
       // Ждем завершения навигации
       await page.waitForNavigation({
-        waitUntil: "networkidle2",
-        timeout: 120000,
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
       });
 
       // Проверяем успешность авторизации
@@ -76,10 +78,33 @@ class ParseController {
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
           "--disable-gpu",
+          "--disable-web-security",
+          "--disable-features=VizDisplayCompositor",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
         ],
-        defaultViewport: null,
+        defaultViewport: { width: 1920, height: 1080 },
+        ignoreDefaultArgs: ["--disable-extensions"],
       });
       const page = await browser.newPage();
+
+      // Отключаем загрузку ненужных ресурсов для ускорения парсинга
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const resourceType = req.resourceType();
+        if (
+          resourceType === "image" ||
+          resourceType === "stylesheet" ||
+          resourceType === "font" ||
+          resourceType === "media"
+        ) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
@@ -89,7 +114,17 @@ class ParseController {
         console.error("Ошибка страницы:", err);
       });
 
+      // Подавляем ошибки JavaScript, которые не влияют на парсинг
       page.on("pageerror", (err) => {
+        // Игнорируем ошибки, связанные с отсутствующими библиотеками
+        if (
+          err.message.includes("ga.push is not a function") ||
+          err.message.includes("tooltipster is not a function") ||
+          err.message.includes("sticky is not a function") ||
+          err.message.includes("Cannot read properties of undefined")
+        ) {
+          return; // Не логируем эти ошибки
+        }
         console.error("Ошибка JavaScript на странице:", err);
       });
 
@@ -112,8 +147,8 @@ class ParseController {
           console.log(`Парсинг грузов, страница ${currentPage}: ${url}`);
 
           await page.goto(url, {
-            waitUntil: "networkidle2",
-            timeout: 120000,
+            waitUntil: "domcontentloaded",
+            timeout: 60000,
           });
 
           // Проверяем наличие капчи
@@ -325,10 +360,33 @@ class ParseController {
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
           "--disable-gpu",
+          "--disable-web-security",
+          "--disable-features=VizDisplayCompositor",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
         ],
-        defaultViewport: null,
+        defaultViewport: { width: 1920, height: 1080 },
+        ignoreDefaultArgs: ["--disable-extensions"],
       });
       const page = await browser.newPage();
+
+      // Отключаем загрузку ненужных ресурсов для ускорения парсинга
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const resourceType = req.resourceType();
+        if (
+          resourceType === "image" ||
+          resourceType === "stylesheet" ||
+          resourceType === "font" ||
+          resourceType === "media"
+        ) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+
       await page.setUserAgent(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       );
@@ -338,19 +396,46 @@ class ParseController {
 
       const detailLinksSet = new Set();
       let currentPage = 1;
-      const maxPages = 47;
+      const maxPages = 47; // Восстанавливаем полное количество страниц
       console.log("Начинаем парсинг машин с Avtodispetcher...");
 
       while (true) {
         const url =
           currentPage === 1
-            ? "https://avtodispetcher.ru/truck/"
-            : `https://avtodispetcher.ru/truck/page-${currentPage}`;
+            ? "https://www.avtodispetcher.ru/truck/"
+            : `https://www.avtodispetcher.ru/truck/page-${currentPage}`;
         console.log(`Парсинг машин, страница ${currentPage}: ${url}`);
-        await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout: 120000,
-        });
+
+        try {
+          await page.goto(url, {
+            waitUntil: "domcontentloaded",
+            timeout: 90000,
+          });
+        } catch (navigationError) {
+          console.error(
+            `Ошибка навигации на странице ${currentPage}:`,
+            navigationError.message
+          );
+          // Пробуем еще раз с увеличенным таймаутом
+          try {
+            console.log(`Повторная попытка для страницы ${currentPage}...`);
+            await page.goto(url, {
+              waitUntil: "domcontentloaded",
+              timeout: 120000,
+            });
+          } catch (retryError) {
+            console.error(
+              `Повторная попытка не удалась для страницы ${currentPage}:`,
+              retryError.message
+            );
+            currentPage++;
+            if (currentPage > maxPages) {
+              console.log(`Достигнут лимит ${maxPages} страниц.`);
+              break;
+            }
+            continue;
+          }
+        }
 
         const tableHandle = await page.$("table");
         if (!tableHandle) {
@@ -363,8 +448,10 @@ class ParseController {
           (els) =>
             els.map(
               (el) =>
-                new URL(el.getAttribute("href"), "https://avtodispetcher.ru")
-                  .href
+                new URL(
+                  el.getAttribute("href"),
+                  "https://www.avtodispetcher.ru"
+                ).href
             )
         );
         console.log(
@@ -507,4 +594,12 @@ class ParseController {
   }
 }
 
-export default new ParseController();
+const parseController = new ParseController();
+
+// Привязываем методы к контексту класса
+export default {
+  parseAvtodispetcher:
+    parseController.parseAvtodispetcher.bind(parseController),
+  parseVehiclesFromAvtodispetcher:
+    parseController.parseVehiclesFromAvtodispetcher.bind(parseController),
+};

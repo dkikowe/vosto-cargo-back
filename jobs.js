@@ -6,10 +6,16 @@ import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 async function runParsingJob() {
   console.log("Запуск задания парсинга");
   try {
+    // Создаем mock объекты для req и res
+    const mockReq = {};
+    const mockRes = {
+      json: (data) => data,
+    };
+
     // Парсим грузы
     const cargoRes = await ParseController.parseAvtodispetcher(
-      {},
-      { json: (data) => data }
+      mockReq,
+      mockRes
     );
     const cargoData = cargoRes.data;
 
@@ -24,8 +30,8 @@ async function runParsingJob() {
 
     // Парсим машины
     const machineRes = await ParseController.parseVehiclesFromAvtodispetcher(
-      {},
-      { json: (data) => data }
+      mockReq,
+      mockRes
     );
     const machineData = machineRes.data;
 
