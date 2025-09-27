@@ -9,20 +9,19 @@ import crypto from "crypto";
 dotenv.config();
 
 import * as UserController from "./controllers/UserController.js";
-import * as OrderController from "./controllers/OrderController.js"; // Импорт контроллера заказов (оставляем как есть для остального функционала)
+import * as OrderController from "./controllers/OrderController.js"; // оставляем для остального функционала
 import ParseController from "./controllers/ParseController.js";
 import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
 import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import { sendSupportMessage } from "./controllers/Support.js";
-import { saveLocation } from "./controllers/UserController.js";
 import ratingRouter from "./controllers/RatingController.js";
 import { startBot } from "./controllers/BotTelega.js";
 
-// ⚠️ Robokassa больше не зависит от Order
+// Robokassa не зависит от Order
 // import { Order } from "./models/Order.js";
 
-// ✅ Понадобится модель пользователя для включения премиума
+// Модель пользователя — понадобится для подписки
 import User from "./models/User.js";
 
 import "./jobs.js";
@@ -48,12 +47,12 @@ app.use(
 app.options("*", cors());
 
 // Robokassa callback присылает application/x-www-form-urlencoded,
-// поэтому подключаем urlencoded ПЕРЕД json.
+// поэтому urlencoded ПЕРЕД json
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
 // ---------- Маршруты для пользователей ----------
 app.post("/register", UserController.register);
@@ -106,33 +105,61 @@ app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
 
 app.post("/support", sendSupportMessage);
 
-// ======================= ROBOKASSA (упрощённо, без Order) =======================
+// ======================= ROBOKASSA (без Order) =======================
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
+
+// срок действия подписки по плану
+function calcExpiry(plan) {
+  const now = new Date();
+  const expires = new Date(now.getTime());
+  switch (plan) {
+    case "single": // 1 неделя
+      expires.setDate(expires.getDate() + 7);
+      break;
+    case "minimal": // 1 месяц
+      expires.setMonth(expires.getMonth() + 1);
+      break;
+    case "standard-3m": // 3 месяца
+      expires.setMonth(expires.getMonth() + 3);
+      break;
+    case "standard-12m": // 12 месяцев
+      expires.setMonth(expires.getMonth() + 12);
+      break;
+    default: // fallback — 1 неделя
+      expires.setDate(expires.getDate() + 7);
+  }
+  return { startedAt: now, expiresAt: expires };
+}
 
 /**
  * Генерация ссылки на оплату Premium
  * POST /api/payments/robokassa/create
- * body: { userId: string, amount: number|string }
+ * body: { userId: string, amount: number|string, plan?: "single"|"minimal"|"standard-3m"|"standard-12m" }
  */
 app.post("/api/payments/robokassa/create", async (req, res) => {
   try {
-    const { userId, amount } = req.body || {};
+    const { userId, amount, plan } = req.body || {};
     if (!userId || amount === undefined || amount === null) {
       return res.status(400).json({ error: "userId and amount required" });
     }
 
-    // опционально: проверить, что пользователь существует
+    // проверим, что пользователь существует
     const user = await User.findById(userId).select("_id");
     if (!user) return res.status(404).json({ error: "user not found" });
 
     const { ROBO_LOGIN, ROBO_PASS1, ROBO_IS_TEST } = process.env;
+    if (!ROBO_LOGIN || !ROBO_PASS1) {
+      return res.status(500).json({ error: "Robokassa env is not configured" });
+    }
 
-    // Уникальный идентификатор транзакции (не Order)
-    const InvId = Date.now();
+    const InvId = String(Date.now());
     const OutSum = Number(amount).toFixed(2);
 
-    // Передаём userId через Shp_*, чтобы получить его в колбэке
-    const shp = { Shp_user: String(userId) };
+    // Shp_* вернутся в колбэк
+    const shp = {
+      Shp_user: String(userId),
+      ...(plan ? { Shp_plan: String(plan) } : {}),
+    };
     const shpSorted = Object.entries(shp).sort(([a], [b]) =>
       a.localeCompare(b)
     );
@@ -147,7 +174,7 @@ app.post("/api/payments/robokassa/create", async (req, res) => {
     const params = new URLSearchParams({
       MerchantLogin: ROBO_LOGIN,
       OutSum,
-      InvId: String(InvId),
+      InvId,
       SignatureValue,
       Description: `Оплата Premium`,
       Encoding: "utf-8",
@@ -171,41 +198,83 @@ app.post("/api/payments/robokassa/create", async (req, res) => {
  */
 app.post("/api/payments/robokassa/callback", async (req, res) => {
   try {
-    const { OutSum, InvId, SignatureValue, Shp_user, ...rest } = req.body || {};
+    const { OutSum, InvId, SignatureValue, Shp_user, Shp_plan, ...rest } =
+      req.body || {};
     if (!OutSum || !InvId || !SignatureValue) {
       return res.status(400).send("bad request");
     }
 
-    // Собираем все Shp_* для подписи, сортируем по имени
-    const shpEntries = Object.entries({ Shp_user, ...rest })
-      .filter(([k, v]) => k && k.startsWith("Shp_") && v !== undefined)
+    const { ROBO_PASS2 } = process.env;
+    if (!ROBO_PASS2) return res.status(500).send("server misconfigured");
+
+    // Собираем Shp_* для подписи, сортируем по имени
+    const shpEntries = Object.entries({ Shp_user, Shp_plan, ...rest })
+      .filter(
+        ([k, v]) => k && k.startsWith("Shp_") && v !== undefined && v !== null
+      )
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}=${v}`);
     const shpQuery = shpEntries.join(":");
 
-    // Проверка подписи вебхука: OutSum:InvId:Password2[:Shp_...]
+    // Проверка подписи: OutSum:InvId:Password2[:Shp_...]
     const base =
-      `${OutSum}:${InvId}:${process.env.ROBO_PASS2}` +
-      (shpQuery ? `:${shpQuery}` : "");
+      `${OutSum}:${InvId}:${ROBO_PASS2}` + (shpQuery ? `:${shpQuery}` : "");
     const mySign = md5(base);
     if (mySign.toLowerCase() !== String(SignatureValue).toLowerCase()) {
       return res.status(400).send("bad sign");
     }
 
-    // Включаем премиум пользователю
+    // Активируем подписку пользователю
     if (Shp_user) {
       const user = await User.findById(Shp_user);
-      if (user && user.isPremium !== true) {
+      if (user) {
+        const plan = Shp_plan || "single";
+        const { startedAt, expiresAt } = calcExpiry(plan);
+
+        user.subscription = {
+          plan,
+          startedAt,
+          expiresAt,
+          status: "active",
+        };
+        // обратная совместимость
         user.isPremium = true;
+
         await user.save();
       }
     }
 
-    // Вернуть строго OK<InvId>
     return res.send("OK" + InvId);
   } catch (e) {
     console.error("robokassa callback error:", e);
     return res.status(500).send("error");
+  }
+});
+
+// Отмена подписки
+app.post("/api/subscription/cancel", async (req, res) => {
+  try {
+    const { userId } = req.body || {};
+    if (!userId)
+      return res.status(400).json({ success: false, error: "userId required" });
+
+    const user = await User.findById(userId);
+    if (!user)
+      return res.status(404).json({ success: false, error: "user not found" });
+
+    user.subscription = {
+      plan: "none",
+      startedAt: null,
+      expiresAt: null,
+      status: "inactive",
+    };
+    user.isPremium = false;
+
+    await user.save();
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("cancel subscription error:", e);
+    return res.status(500).json({ success: false, error: "internal error" });
   }
 });
 // ===================== /ROBOKASSA =======================
@@ -215,7 +284,7 @@ const port = process.env.PORT || 5050;
 app.listen(port, async () => {
   console.log(successMsg("listening port:", port));
 
-  // Стартуем Telegram-бота (бот с Bot API токеном)
+  // Стартуем Telegram-бота
   try {
     await startBot();
     console.log(successMsg("Telegram-бот успешно запущен"));
@@ -223,7 +292,7 @@ app.listen(port, async () => {
     console.error(errorMsg("Ошибка при запуске Telegram-бота:"), err);
   }
 
-  // Стартуем Telegram MTProto парсер (под своим аккаунтом)
+  // Стартуем Telegram MTProto парсер
   try {
     await startTelegramListener();
     console.log(successMsg("Telegram-парсер успешно запущен"));

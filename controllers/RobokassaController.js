@@ -21,7 +21,7 @@ function calcExpiry(plan) {
     case "standard-12m": // 12 месяцев
       expires.setMonth(expires.getMonth() + 12);
       break;
-    default: // по умолчанию — 1 неделя
+    default: // fallback — 1 неделя
       expires.setDate(expires.getDate() + 7);
   }
   return { startedAt: now, expiresAt: expires };
@@ -36,6 +36,10 @@ export async function createRobokassaPayment(req, res) {
     }
 
     const { ROBO_LOGIN, ROBO_PASS1, ROBO_IS_TEST } = process.env;
+    if (!ROBO_LOGIN || !ROBO_PASS1) {
+      return res.status(500).json({ error: "Robokassa env is not configured" });
+    }
+
     const InvId = String(Date.now());
     const OutSum = Number(amount).toFixed(2);
 
@@ -83,17 +87,21 @@ export async function robokassaCallback(req, res) {
     if (!OutSum || !InvId || !SignatureValue)
       return res.status(400).send("bad request");
 
+    const { ROBO_PASS2 } = process.env;
+    if (!ROBO_PASS2) return res.status(500).send("server misconfigured");
+
     // Собираем Shp_* для подписи (обязательно сортировать)
     const shpEntries = Object.entries({ Shp_user, Shp_plan, ...rest })
-      .filter(([k, v]) => k.startsWith("Shp_") && v !== undefined)
+      .filter(
+        ([k, v]) => k && k.startsWith("Shp_") && v !== undefined && v !== null
+      )
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}=${v}`);
     const shpQuery = shpEntries.join(":");
 
     // Проверка подписи (Password #2)
     const base =
-      `${OutSum}:${InvId}:${process.env.ROBO_PASS2}` +
-      (shpQuery ? `:${shpQuery}` : "");
+      `${OutSum}:${InvId}:${ROBO_PASS2}` + (shpQuery ? `:${shpQuery}` : "");
     const mySign = md5(base);
     if (mySign.toLowerCase() !== String(SignatureValue).toLowerCase()) {
       return res.status(400).send("bad sign");
@@ -112,9 +120,7 @@ export async function robokassaCallback(req, res) {
           expiresAt,
           status: "active",
         };
-
-        // обратная совместимость
-        user.isPremium = true;
+        user.isPremium = true; // обратная совместимость
 
         await user.save();
       }
@@ -124,5 +130,32 @@ export async function robokassaCallback(req, res) {
   } catch (e) {
     console.error("robokassaCallback:", e);
     return res.status(500).send("error");
+  }
+}
+
+// Отмена подписки (под ваш фронт)
+export async function cancelSubscription(req, res) {
+  try {
+    const { userId } = req.body || {};
+    if (!userId)
+      return res.status(400).json({ success: false, error: "userId required" });
+
+    const user = await User.findById(userId);
+    if (!user)
+      return res.status(404).json({ success: false, error: "user not found" });
+
+    user.subscription = {
+      plan: "none",
+      startedAt: null,
+      expiresAt: null,
+      status: "inactive",
+    };
+    user.isPremium = false;
+
+    await user.save();
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("cancelSubscription:", e);
+    return res.status(500).json({ success: false, error: "internal error" });
   }
 }
