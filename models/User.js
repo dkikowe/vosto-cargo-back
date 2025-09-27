@@ -42,6 +42,9 @@ const userSchema = new mongoose.Schema(
 
     company: { type: companySchema, default: () => ({}) },
     theme: { type: String, enum: ["light", "dark"], default: "light" },
+
+    // 🔑 Новое поле — премиум
+    isPremium: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
