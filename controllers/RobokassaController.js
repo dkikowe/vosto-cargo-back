@@ -3,19 +3,47 @@ import User from "../models/User.js";
 
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
 
+// ====== вспомогательное: срок подписки по плану ======
+function calcExpiry(plan) {
+  const now = new Date();
+  const expires = new Date(now.getTime());
+
+  switch (plan) {
+    case "single": // 1 неделя
+      expires.setDate(expires.getDate() + 7);
+      break;
+    case "minimal": // 1 месяц
+      expires.setMonth(expires.getMonth() + 1);
+      break;
+    case "standard-3m": // 3 месяца
+      expires.setMonth(expires.getMonth() + 3);
+      break;
+    case "standard-12m": // 12 месяцев
+      expires.setMonth(expires.getMonth() + 12);
+      break;
+    default: // по умолчанию — 1 неделя
+      expires.setDate(expires.getDate() + 7);
+  }
+  return { startedAt: now, expiresAt: expires };
+}
+
 // Генерация ссылки на оплату
 export async function createRobokassaPayment(req, res) {
   try {
-    const { userId, amount } = req.body || {};
-    if (!userId || !amount)
+    const { userId, amount, plan } = req.body || {};
+    if (!userId || amount == null) {
       return res.status(400).json({ error: "userId and amount required" });
+    }
 
     const { ROBO_LOGIN, ROBO_PASS1, ROBO_IS_TEST } = process.env;
-    const InvId = Date.now(); // уникальный id транзакции (можно хранить в отдельной коллекции)
+    const InvId = String(Date.now());
     const OutSum = Number(amount).toFixed(2);
 
-    // Доп. параметры
-    const shp = { Shp_user: String(userId) };
+    // Доп. параметры (Shp_* возвращаются в колбэк)
+    const shp = {
+      Shp_user: String(userId),
+      ...(plan ? { Shp_plan: String(plan) } : {}),
+    };
     const shpSorted = Object.entries(shp).sort(([a], [b]) =>
       a.localeCompare(b)
     );
@@ -50,12 +78,13 @@ export async function createRobokassaPayment(req, res) {
 // Колбэк (Result URL)
 export async function robokassaCallback(req, res) {
   try {
-    const { OutSum, InvId, SignatureValue, Shp_user, ...rest } = req.body || {};
+    const { OutSum, InvId, SignatureValue, Shp_user, Shp_plan, ...rest } =
+      req.body || {};
     if (!OutSum || !InvId || !SignatureValue)
       return res.status(400).send("bad request");
 
-    // Собираем Shp_* для подписи
-    const shpEntries = Object.entries({ Shp_user, ...rest })
+    // Собираем Shp_* для подписи (обязательно сортировать)
+    const shpEntries = Object.entries({ Shp_user, Shp_plan, ...rest })
       .filter(([k, v]) => k.startsWith("Shp_") && v !== undefined)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}=${v}`);
@@ -70,11 +99,23 @@ export async function robokassaCallback(req, res) {
       return res.status(400).send("bad sign");
     }
 
-    // 👉 Обновляем юзера
+    // Обновляем подписку пользователя
     if (Shp_user) {
       const user = await User.findById(Shp_user);
       if (user) {
+        const plan = Shp_plan || "single";
+        const { startedAt, expiresAt } = calcExpiry(plan);
+
+        user.subscription = {
+          plan,
+          startedAt,
+          expiresAt,
+          status: "active",
+        };
+
+        // обратная совместимость
         user.isPremium = true;
+
         await user.save();
       }
     }

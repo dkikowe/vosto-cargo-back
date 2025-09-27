@@ -16,6 +16,24 @@ const companySchema = new mongoose.Schema({
   photo: { type: String, default: "" },
 });
 
+const subscriptionSchema = new mongoose.Schema(
+  {
+    plan: {
+      type: String,
+      enum: ["none", "single", "minimal", "standard-3m", "standard-12m"],
+      default: "none",
+    },
+    startedAt: { type: Date },
+    expiresAt: { type: Date },
+    status: {
+      type: String,
+      enum: ["inactive", "active", "expired"],
+      default: "inactive",
+    },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -30,7 +48,6 @@ const userSchema = new mongoose.Schema(
       updatedAt: Date,
     },
 
-    // 💡 fromUser — внутри истории рейтингов
     ratingHistory: [
       {
         value: { type: Number, required: true },
@@ -43,10 +60,19 @@ const userSchema = new mongoose.Schema(
     company: { type: companySchema, default: () => ({}) },
     theme: { type: String, enum: ["light", "dark"], default: "light" },
 
-    // 🔑 Новое поле — премиум
+    // Старая логика — для обратной совместимости
     isPremium: { type: Boolean, default: false },
+
+    // Новая подписка
+    subscription: { type: subscriptionSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
+
+// Опционально: виртуал, чтобы isPremium синхронизировался по подписке
+userSchema.virtual("premiumNow").get(function () {
+  const s = this.subscription || {};
+  return s.status === "active" && s.expiresAt && s.expiresAt > new Date();
+});
 
 export default mongoose.model("User", userSchema);
