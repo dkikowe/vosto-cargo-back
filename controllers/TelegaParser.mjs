@@ -7,19 +7,23 @@ import fs from "fs";
 import { TelegramClient, Api } from "telegram";
 import { NewMessage } from "telegram/events/index.js";
 import { StringSession } from "telegram/sessions/index.js";
-import input from "input";
+import qrcode from "qrcode-terminal";
+import input from "input"; // <-- для запроса 2FA-пароля из терминала
 import { CargoOrder, MachineOrder } from "../models/Order.js";
 
-// ---------- Конфиг ----------
-const TG_API_ID = Number(process.env.TG_API_ID ?? 27860754);
-const TG_API_HASH = String(
-  process.env.TG_API_HASH ?? "3b43e22022d815ba5e771d2d86526aa0"
-);
-const DEEPSEEK_API_KEY = String(
-  process.env.DEEPSEEK_API_KEY ?? "sk-1f84fedf00d746339291a89cda7f9e2a"
-);
-const ENABLE_AUTO_RESEND =
-  (process.env.ENABLE_AUTO_RESEND ?? "true").toLowerCase() === "true";
+// ---------- Конфиг (без дефолтов, только из .env) ----------
+const TG_API_ID = 27860754;
+const TG_API_HASH = "3b43e22022d815ba5e771d2d86526aa0";
+const DEEPSEEK_API_KEY = String(process.env.DEEPSEEK_API_KEY);
+
+if (!TG_API_ID || !TG_API_HASH) {
+  throw new Error("TG_API_ID / TG_API_HASH не заданы в .env");
+}
+if (!DEEPSEEK_API_KEY) {
+  console.warn(
+    "Внимание: DEEPSEEK_API_KEY не задан. Функции LLM могут не работать."
+  );
+}
 
 const sessionFile = "session.txt";
 let sessionString = fs.existsSync(sessionFile)
@@ -27,6 +31,7 @@ let sessionString = fs.existsSync(sessionFile)
   : "";
 const stringSession = new StringSession(sessionString);
 
+// ---------- Целевые чаты ----------
 const targetChats = [
   "rusyugtrans",
   "vezy_tovar",
@@ -36,7 +41,7 @@ const targetChats = [
   "internationalcargotransport",
   "kavkaz_gruzi",
   "euro_loads",
-  "gruzoperevozki_vrussia",
+  "gruzoperevozkivrussia",
   "liderlagist",
   "gruzallrussia",
   "zagruzki_moskva",
@@ -74,10 +79,7 @@ async function askDeepSeek(prompt) {
   try {
     const resp = await axios.post(
       "https://api.deepseek.com/v1/chat/completions",
-      {
-        model: "deepseek-chat",
-        messages: [{ role: "user", content: prompt }],
-      },
+      { model: "deepseek-chat", messages: [{ role: "user", content: prompt }] },
       {
         headers: {
           Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
@@ -146,118 +148,74 @@ const basePrompt = `Ты — backend-ассистент. Я буду присы�
 
 Исправляй ошибки в тексте. Верни только валидный JSON без пояснений.`;
 
-// ---------- Авторизация с диагностикой ----------
-async function ensureLogin(client) {
+// ---------- вспомогательная: получение 2FA пароля ----------
+async function getTwoFaPassword(hint) {
+  const envPwd = process.env.TG_2FA_PASSWORD;
+  if (envPwd && envPwd.trim().length > 0) return envPwd.trim();
+  // Тихо спросим в терминале (звёздочки)
+  const pwd = await input.password(
+    `Введите пароль 2FA${hint ? ` (hint: ${hint})` : ""}: `
+  );
+  if (!pwd || pwd.trim().length === 0) {
+    throw new Error("2FA пароль не введён");
+  }
+  return pwd.trim();
+}
+
+// ---------- Логин по QR (без СМС/кодов) ----------
+async function ensureLoginViaQR(client) {
   await client.connect();
 
+  // если сессия валидна — выходим
   try {
     await client.getMe();
     console.log("Сессия уже активна.");
     return;
   } catch {
-    // продолжаем
+    // пойдём по QR
   }
 
-  const phone = await input.text("Введите номер (+XXXXXXXXXXX): ");
-
-  let sent;
-  try {
-    sent = await client.invoke(
-      new Api.auth.SendCode({
-        phoneNumber: phone,
-        apiId: TG_API_ID,
-        apiHash: TG_API_HASH,
-        settings: new Api.CodeSettings({
-          allow_sms: true,
-          allow_app_hash: true,
-          allow_flashcall: false,
-          current_number: false,
-        }),
-      })
-    );
-  } catch (e) {
-    const msg = String(e?.message || e);
-    if (msg.includes("FLOOD_WAIT_")) {
-      throw new Error("FLOOD_WAIT: лимит по IP. Смените IP и повторите позже.");
-    }
-    if (msg.includes("_MIGRATE_")) {
-      console.warn(
-        "Сообщение о миграции DC от Telegram (обрабатывается библиотекой автоматически). Повторите попытку."
-      );
-    }
-    throw e;
-  }
-
-  console.log("Тип доставки кода:", sent?.type?.className);
-  console.log("Следующая опция:", sent?.nextType?.className);
-  console.log("Таймаут до ресенда (сек):", sent?.timeout ?? 60);
   console.log(
-    "Код обычно приходит в чат «Telegram» в мобильном приложении. SMS — если сообщение не доставлено в приложение."
+    "Старт QR-логина. Откройте Telegram на телефоне и отсканируйте QR."
   );
 
-  if (ENABLE_AUTO_RESEND) {
-    const waitMs = (sent?.timeout ?? 60) * 1000;
-    if (waitMs > 0) {
-      console.log(`Ждём ${Math.round(waitMs / 1000)} сек. перед ResendCode...`);
-      await new Promise((r) => setTimeout(r, waitMs));
-      try {
-        const resent = await client.invoke(
-          new Api.auth.ResendCode({
-            phoneNumber: phone,
-            phoneCodeHash: sent.phoneCodeHash,
-          })
+  const user = await client.signInUserWithQrCode(
+    { apiId: TG_API_ID, apiHash: TG_API_HASH },
+    {
+      qrCode: async ({ token, expires }) => {
+        // Telegram-клиент примет этот токен по схеме tg://login
+        const uri = `tg://login?token=${token.toString("base64url")}`;
+        qrcode.generate(uri, { small: true });
+        console.log(
+          "Если QR не виден в терминале, откройте ссылку (на устройстве с Telegram):",
+          uri
         );
-        console.log("После Resend тип доставки:", resent?.type?.className);
-      } catch (e) {
-        const msg = String(e?.message || e);
-        if (msg.includes("FLOOD_WAIT_")) {
-          console.warn("FLOOD_WAIT на Resend — подождите/смените IP.");
-        } else {
-          console.warn("ResendCode не выполнен:", msg);
-        }
-      }
+        const ttl = Math.max(
+          0,
+          Math.round((expires * 1000 - Date.now()) / 1000)
+        );
+        console.log(`QR действителен ~${ttl} сек.`);
+      },
+      // если включена 2FA — GramJS вызовет этот колбэк
+      password: async (hint) => {
+        return await getTwoFaPassword(hint);
+      },
+      onError: async (err) => {
+        // Не прерываем процесс сразу, позволяем библиотеке повторить попытку
+        console.error("Ошибка при QR-логине:", err?.message || err);
+        return false; // <= важно: не обрываем
+      },
     }
-  }
-
-  const code = await input.text(
-    "Введите полученный код (из приложения или SMS): "
   );
 
-  try {
-    await client.invoke(
-      new Api.auth.SignIn({
-        phoneNumber: phone,
-        phoneCodeHash: sent.phoneCodeHash,
-        phoneCode: code.trim(),
-      })
-    );
-  } catch (err) {
-    const msg = String(err?.message || err);
-    if (msg.includes("SESSION_PASSWORD_NEEDED")) {
-      console.log("Включена 2FA — требуется пароль.");
-      await client.checkPassword(await input.text("Введите пароль 2FA: "));
-    } else if (msg.includes("PHONE_NUMBER_FLOOD")) {
-      throw new Error(
-        "PHONE_NUMBER_FLOOD: лимит попыток для номера. Подождите 12–24 часа."
-      );
-    } else if (msg.includes("FLOOD_WAIT_")) {
-      throw new Error(
-        "FLOOD_WAIT: общий лимит по IP. Смените IP и повторите позже."
-      );
-    } else if (msg.includes("PHONE_NUMBER_BANNED")) {
-      throw new Error("Номер заблокирован Telegram.");
-    } else if (msg.includes("PHONE_CODE_EXPIRED")) {
-      throw new Error("Код истёк. Повторите авторизацию.");
-    } else if (msg.includes("PHONE_CODE_INVALID")) {
-      throw new Error("Неверный код. Проверьте ввод.");
-    } else {
-      throw err;
-    }
-  }
+  console.log(
+    "QR-логин выполнен для пользователя:",
+    user?.username || user?.firstName || "OK"
+  );
 
-  console.log("Успешная авторизация. Клиент подключён.");
+  // сохранить сессию
   fs.writeFileSync(sessionFile, client.session.save(), "utf-8");
-  console.log("Сессия сохранена в файле session.txt");
+  console.log("Сессия сохранена в файле", sessionFile);
 }
 
 // ---------- Утилиты парсинга JSON из LLM ----------
@@ -273,16 +231,12 @@ async function parseDeepSeekPayload(resp) {
   const out = [];
   if (!resp) return out;
 
-  // 1) Попытка распарсить как массив JSON
   try {
     const asJson = JSON.parse(cleanJsonBlock(resp));
     if (Array.isArray(asJson)) return asJson;
     if (asJson && typeof asJson === "object") return [asJson];
-  } catch (_) {
-    // идём дальше
-  }
+  } catch (_) {}
 
-  // 2) Попытка разобрать по ```json блокам
   if (resp.includes("```json")) {
     const blocks = resp
       .split(/```json/)
@@ -300,7 +254,6 @@ async function parseDeepSeekPayload(resp) {
     return out;
   }
 
-  // 3) Последняя попытка — построчно
   for (const line of resp.split("\n")) {
     const l = cleanJsonBlock(line);
     if (!l) continue;
@@ -308,9 +261,7 @@ async function parseDeepSeekPayload(resp) {
       const obj = JSON.parse(l);
       if (Array.isArray(obj)) out.push(...obj);
       else out.push(obj);
-    } catch {
-      // игнор
-    }
+    } catch {}
   }
   return out;
 }
@@ -320,9 +271,15 @@ export async function startTelegramListener() {
   console.log("Запуск Telegram MTProto клиента...");
   const client = new TelegramClient(stringSession, TG_API_ID, TG_API_HASH, {
     connectionRetries: 5,
+    requestRetries: 5,
+    retryDelay: 500,
+    autoReconnect: true,
+    // При проблемах с сетью можно задействовать WebSocket в вашей версии GramJS:
+    // useWSS: true,
   });
 
-  await ensureLogin(client);
+  // Логин только через QR
+  await ensureLoginViaQR(client);
 
   // Join каналов
   for (const chat of targetChats) {
@@ -361,15 +318,11 @@ export async function startTelegramListener() {
     }
   }
 
-  // История за неделю
+  // История за неделю (offsetDate — объект Date)
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const offsetDate = Math.floor(weekAgo.getTime() / 1000);
   for (const chatEntity of validChats) {
     try {
-      await client.getMessages(chatEntity, {
-        limit: 100,
-        offsetDate,
-      });
+      await client.getMessages(chatEntity, { limit: 100, offsetDate: weekAgo });
       console.log(
         `Загружено сообщений из @${
           chatEntity.username || chatEntity.id
