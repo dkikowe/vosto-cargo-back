@@ -11,7 +11,7 @@ dotenv.config();
 import * as UserController from "./controllers/UserController.js";
 import * as OrderController from "./controllers/OrderController.js"; // оставляем для остального функционала
 import ParseController from "./controllers/ParseController.js";
-import { startTelegramListener } from "./controllers/TelegaParser.mjs";
+// import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
 import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import { sendSupportMessage } from "./controllers/Support.js";
@@ -284,19 +284,19 @@ const port = process.env.PORT || 5050;
 app.listen(port, async () => {
   console.log(successMsg("listening port:", port));
 
-  // Стартуем Telegram-бота
-  try {
-    await startBot();
-    console.log(successMsg("Telegram-бот успешно запущен"));
-  } catch (err) {
-    console.error(errorMsg("Ошибка при запуске Telegram-бота:"), err);
-  }
+  // // Стартуем Telegram-бота
+  // try {
+  //   await startBot();
+  //   console.log(successMsg("Telegram-бот успешно запущен"));
+  // } catch (err) {
+  //   console.error(errorMsg("Ошибка при запуске Telegram-бота:"), err);
+  // }
 
-  // Стартуем Telegram MTProto парсер
-  try {
-    await startTelegramListener();
-    console.log(successMsg("Telegram-парсер успешно запущен"));
-  } catch (err) {
-    console.error(errorMsg("Ошибка при запуске Telegram-парсера:"), err);
-  }
+  // // Стартуем Telegram MTProto парсер
+  // try {
+  //   await startTelegramListener();
+  //   console.log(successMsg("Telegram-парсер успешно запущен"));
+  // } catch (err) {
+  //   console.error(errorMsg("Ошибка при запуске Telegram-парсера:"), err);
+  // }
 });

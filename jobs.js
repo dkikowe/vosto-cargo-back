@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import ParseController from "./controllers/ParseController.js";
 import { CargoOrder, MachineOrder } from "./models/Order.js";
-import { startTelegramListener } from "./controllers/TelegaParser.mjs";
+// import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 
 async function runParsingJob() {
   console.log("Запуск задания парсинга");
