@@ -1,2 +1,3 @@
-2025/11/03-11:28:48.245 a703 Creating DB /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/shared_proto_db/metadata since it was missing.
-2025/11/03-11:28:48.247 a703 Reusing MANIFEST /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/shared_proto_db/metadata/MANIFEST-000001
+2026/03/11-11:00:29.868 a103 Reusing MANIFEST /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/shared_proto_db/metadata/MANIFEST-000001
+2026/03/11-11:00:29.868 a103 Recovering log #3
+2026/03/11-11:00:29.869 a103 Reusing old log /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/shared_proto_db/metadata/000003.log 

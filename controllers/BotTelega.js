@@ -255,12 +255,16 @@ mongoose.connection.once("open", () => {
       text = formatCargoText(doc, nickname);
       kb = buildKeyboard(doc, "Посмотреть маршрут", "Связаться с заказчиком");
       subs = cargoSubscribers;
-    }
-    if (doc.orderType === "MachineOrder") {
+    } else if (doc.orderType === "MachineOrder") {
       text = formatMachineText(doc, nickname);
       kb = buildKeyboard(doc, "Посмотреть маршрут", "Связаться с перевозчиком");
       subs = vehicleSubscribers;
+    } else {
+      // Игнорируем новые типы заказов (TMS), чтобы бот не падал
+      return;
     }
+
+    if (!subs) return;
 
     for (const id of subs) {
       await bot.telegram.sendMessage(id, text, {

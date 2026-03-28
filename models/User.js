@@ -34,18 +34,56 @@ const subscriptionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// --- Новые профили для ролей ---
+const driverProfileSchema = new mongoose.Schema(
+  {
+    licenseNumber: { type: String },
+    licenseCategory: [{ type: String }], // B, C, E etc.
+    experienceYears: { type: Number },
+    currentVehicle: { type: mongoose.Schema.Types.ObjectId, ref: "Vehicle" },
+    employer: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // Логист-работодатель
+    isOnShift: { type: Boolean, default: false },
+    status: {
+      type: String,
+      enum: ["FREE", "BUSY", "OFFLINE"],
+      default: "OFFLINE",
+    },
+  },
+  { _id: false }
+);
+
+const logisticianProfileSchema = new mongoose.Schema(
+  {
+    companyName: { type: String },
+    managedFleets: [{ type: mongoose.Schema.Types.ObjectId, ref: "Vehicle" }],
+    drivers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // Нанятые водители
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    role: { type: String, default: "" },
+    
+    // Обновленная ролевая модель
+    role: { 
+      type: String, 
+      enum: ["CUSTOMER", "LOGISTICIAN", "DRIVER", "ADMIN", ""], // "" для совместимости со старыми юзерами
+      default: "" 
+    },
+
     telegramId: { type: String, unique: true, required: true },
     avatar: { type: String, default: "" },
     rating: { type: Number, default: 5.0 },
     language: { type: String, default: "ru" },
+    
+    // Геолокация (общая для всех, но критична для водителя)
     location: {
       latitude: Number,
       longitude: Number,
       updatedAt: Date,
+      heading: Number, // Направление движения (градусы)
+      speed: Number,   // Скорость (км/ч)
     },
 
     ratingHistory: [
@@ -58,6 +96,11 @@ const userSchema = new mongoose.Schema(
     ],
 
     company: { type: companySchema, default: () => ({}) },
+    
+    // Специфичные профили
+    driverProfile: { type: driverProfileSchema, default: () => ({}) },
+    logisticianProfile: { type: logisticianProfileSchema, default: () => ({}) },
+
     theme: { type: String, enum: ["light", "dark"], default: "light" },
 
     // Старая логика — для обратной совместимости

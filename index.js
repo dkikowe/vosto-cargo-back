@@ -1,4 +1,6 @@
 import express from "express";
+import http from "http";
+import { Server } from "socket.io";
 import mongoose from "mongoose";
 import chalk from "chalk";
 import dotenv from "dotenv";
@@ -9,7 +11,10 @@ import crypto from "crypto";
 dotenv.config();
 
 import * as UserController from "./controllers/UserController.js";
-import * as OrderController from "./controllers/OrderController.js"; // оставляем для остального функционала
+import * as OrderController from "./controllers/OrderController.js";
+import * as FleetController from "./controllers/FleetController.js";
+import * as AIController from "./controllers/AIController.js";
+import * as SearchController from "./controllers/SearchController.js";
 import ParseController from "./controllers/ParseController.js";
 // import { startTelegramListener } from "./controllers/TelegaParser.mjs";
 import { getDistance } from "./controllers/RouteController.js";
@@ -17,6 +22,11 @@ import { getShippingCalculation } from "./controllers/DeepSeek.js";
 import { sendSupportMessage } from "./controllers/Support.js";
 import ratingRouter from "./controllers/RatingController.js";
 import { startBot } from "./controllers/BotTelega.js";
+
+// Новые сервисы и middleware
+import { initRedis, handleLocationUpdate } from "./services/TrackingService.js";
+import { parseOrderRequest } from "./services/AIService.js";
+import { checkRole } from "./middleware/roleMiddleware.js";
 
 // Robokassa не зависит от Order
 // import { Order } from "./models/Order.js";
@@ -29,12 +39,49 @@ import "./jobs.js";
 const errorMsg = chalk.bgWhite.redBright;
 const successMsg = chalk.bgGreen.white;
 
+// Инициализация Redis
+initRedis().catch(err => console.error(errorMsg("Redis init error:", err)));
+
 mongoose
   .connect(process.env.MONGO_SRV)
   .then(() => console.log(successMsg("DB ok")))
   .catch((err) => console.log(errorMsg("DB error:", err)));
 
 const app = express();
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+
+// Socket.io connection handler
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  // Клиент (логист/заказчик) подписывается на трекинг заказа
+  socket.on('joinOrder', (orderId) => {
+    socket.join(`track:${orderId}`);
+    console.log(`User ${socket.id} joined order ${orderId}`);
+  });
+
+  // Водитель отправляет координаты
+  socket.on('updateLocation', async (data) => {
+    // data: { driverId, lat, lng, orderId }
+    try {
+      await handleLocationUpdate(socket, data);
+    } catch (err) {
+      console.error("Location update error:", err);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
 
 app.use(
   cors({
@@ -90,7 +137,7 @@ app.get("/api/distance", getDistance);
 
 app.use("/api/rating", ratingRouter);
 
-// ---------- Маршруты для заказов ----------
+// ---------- Маршруты для заказов (Legacy + New) ----------
 app.post("/orders", OrderController.createOrder);
 app.get("/orders", OrderController.getOrders);
 app.get("/allOrders", OrderController.getAllOrders);
@@ -99,9 +146,52 @@ app.delete("/orders", OrderController.deleteOrder);
 app.post("/orders/archive", OrderController.archiveOrder);
 app.post("/orders/restore", OrderController.restoreOrder);
 
+// --- Bidding Engine ---
+app.get("/api/v1/orders/:id", OrderController.getOrderById);
+app.post("/api/v1/orders/:orderId/bids", OrderController.placeBid);
+app.post("/api/v1/orders/:orderId/bids/:bidId/accept", OrderController.acceptBid);
+
+// --- Fleet Management ---
+app.get("/api/v1/fleet/locations", FleetController.getFleetLocations);
+app.post("/api/v1/fleet/vehicles", FleetController.addVehicle);
+app.get("/api/v1/fleet/vehicles", FleetController.getMyFleet);
+app.post("/api/v1/fleet/vehicles/assign-driver", FleetController.assignDriverToVehicle);
+app.post("/api/v1/fleet/drivers", FleetController.addDriverByTelegramId);
+app.get("/api/v1/fleet/drivers", FleetController.getMyDrivers);
+app.patch("/api/v1/orders/:orderId/assign", OrderController.assignDriver);
+
+// --- Driver Workflow ---
+app.patch("/api/v1/driver/orders/:orderId/status", OrderController.updateDriverStatus);
+app.post("/api/v1/driver/orders/:orderId/pod", upload.array("photos", 5), OrderController.uploadPoD);
+
+// --- AI Module ---
+app.post("/api/v1/ai/parse", AIController.parseOrder);
+
+
+// --- Search ---
+app.get("/api/v1/users/telegram/:telegramId", SearchController.getUserByTelegramId);
+
 // ---------- Маршруты для парсинга ----------
-app.get("/parse-cargo", ParseController.parseAvtodispetcher);
-app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
+// app.get("/parse-cargo", ParseController.parseAvtodispetcher);
+// app.get("/parse-vehicles", ParseController.parseVehiclesFromAvtodispetcher);
+
+// ---------- AI Service Route (Legacy) ----------
+app.post("/api/ai/parse-order", async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: "Text is required" });
+    
+    const result = await parseOrderRequest(text);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Пример защищенного маршрута (только для логистов и админов)
+app.get("/api/logistician/dashboard", checkRole(['logistician', 'admin']), (req, res) => {
+  res.json({ message: "Welcome to logistician dashboard", user: req.user });
+});
 
 app.post("/support", sendSupportMessage);
 
@@ -281,7 +371,7 @@ app.post("/api/subscription/cancel", async (req, res) => {
 
 const port = process.env.PORT || 5050;
 
-app.listen(port, async () => {
+server.listen(port, async () => {
   console.log(successMsg("listening port:", port));
 
   // // Стартуем Telegram-бота

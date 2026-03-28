@@ -1,7 +1,14 @@
 import cron from "node-cron";
 import ParseController from "./controllers/ParseController.js";
 import { CargoOrder, MachineOrder } from "./models/Order.js";
+import { syncLocationsToMongo } from "./services/TrackingService.js";
 // import { startTelegramListener } from "./controllers/TelegaParser.mjs";
+
+// Задача синхронизации локаций из Redis в Mongo (каждую минуту)
+cron.schedule("* * * * *", async () => {
+    // console.log("Syncing locations to Mongo...");
+    await syncLocationsToMongo();
+});
 
 async function runParsingJob() {
   console.log("Запуск задания парсинга");
@@ -50,7 +57,7 @@ async function runParsingJob() {
 }
 
 // Запуск по расписанию: каждый час, в начале часа
-cron.schedule("0 * * * *", runParsingJob);
+// cron.schedule("0 * * * *", runParsingJob);
 
 // Выполнить один раз сразу при старте
-runParsingJob();
+// runParsingJob();

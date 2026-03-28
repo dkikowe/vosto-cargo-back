@@ -1,2 +1,5 @@
-2025/11/03-11:28:47.838 3d07 Creating DB /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/Local Storage/leveldb since it was missing.
-2025/11/03-11:28:47.846 3d07 Reusing MANIFEST /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/Local Storage/leveldb/MANIFEST-000001
+2026/03/11-11:00:29.286 3903 Reusing MANIFEST /Users/dkikowe/Desktop/VostoCargo project/vosto-cargo-back/.puppeteer-profile/Default/Local Storage/leveldb/MANIFEST-000001
+2026/03/11-11:00:29.289 3903 Recovering log #15
+2026/03/11-11:00:29.290 3903 Level-0 table #18: started
+2026/03/11-11:00:29.294 3903 Level-0 table #18: 14896 bytes OK
+2026/03/11-11:00:29.296 3903 Delete type=0 #15
